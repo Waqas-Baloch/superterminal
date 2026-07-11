@@ -1,0 +1,176 @@
+import { promises as fs } from "node:fs";
+import nodePath from "node:path";
+import { Project } from "ts-morph";
+import { loadAliases } from "./mapper";
+import { expandTask } from "./selector";
+import { focusContent, type FocusResult } from "./focus";
+import { estimateTokens } from "../util/tokens";
+import type { Selection } from "./selector";
+
+const LANG: Record<string, string> = {
+  ".ts": "ts",
+  ".tsx": "tsx",
+  ".js": "js",
+  ".jsx": "jsx",
+  ".mjs": "js",
+  ".cjs": "js",
+  ".json": "json",
+  ".html": "html",
+  ".htm": "html",
+  ".css": "css",
+  ".scss": "scss",
+  ".prisma": "prisma",
+  ".md": "md",
+  ".mdx": "md",
+  ".yml": "yaml",
+  ".yaml": "yaml",
+};
+
+const TS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx"]);
+const MAX_SIGNATURES_PER_FILE = 30;
+const FOCUS_MIN_TOKENS = 250; // below this, excerpting adds overhead instead of saving
+
+export async function generateManifest(opts: {
+  root: string;
+  task: string;
+  selection: Selection;
+  focus?: boolean; // default true — send task-relevant excerpts for large files
+  sessionNote?: string; // follow-up context from the previous task in this session
+}): Promise<string> {
+  const { root, task, selection } = opts;
+  const focusOn = opts.focus !== false;
+  const terms = expandTask(task);
+  const parts: string[] = [];
+
+  parts.push("# Repo context manifest");
+  parts.push(`## Task\n${task}`);
+  if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
+  parts.push(await projectFacts(root));
+
+  const tree = [
+    ...selection.primary.map((f) => `${f.path}  (full)`),
+    ...selection.secondary.map((f) => `${f.path}  (signatures)`),
+  ];
+  parts.push(`## Selected files\n${tree.join("\n")}`);
+
+  const fullChunks: string[] = [];
+  for (const f of selection.primary) {
+    const content = await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => "");
+    const lang = LANG[nodePath.extname(f.path)] ?? "";
+    const focused = focusOn && estimateTokens(content) > FOCUS_MIN_TOKENS ? focusContent(content, terms) : null;
+    if (focused) {
+      fullChunks.push(renderExcerpts(f.path, lang, focused));
+    } else {
+      // 4-backtick fences so markdown files containing ``` don't break the manifest
+      fullChunks.push(`### ${f.path}\n\`\`\`\`${lang}\n${content}\n\`\`\`\``);
+    }
+  }
+  parts.push(`## Files (full content or task-relevant excerpts)\n${fullChunks.join("\n\n")}`);
+
+  if (selection.secondary.length > 0) {
+    const project = new Project({
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+      compilerOptions: { allowJs: true },
+    });
+    const sigChunks: string[] = [];
+    for (const f of selection.secondary) {
+      sigChunks.push(`### ${f.path}\n${await signaturesFor(project, root, f.path)}`);
+    }
+    parts.push(`## Files (signatures only — use read_file for full content)\n${sigChunks.join("\n\n")}`);
+  }
+
+  return parts.join("\n\n");
+}
+
+/** Greenfield: no source files to compress — a thin manifest that scaffolds. */
+export async function generateScaffoldManifest(opts: {
+  root: string;
+  task: string;
+  sessionNote?: string;
+}): Promise<string> {
+  const parts = ["# New project manifest", `## Task\n${opts.task}`];
+  if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
+  parts.push(await projectFacts(opts.root));
+  parts.push(
+    "## Notes\nThis directory has no source files yet — build the project from scratch. Use a minimal, conventional structure for the stack the task implies. Do not add heavyweight tooling, frameworks, or dependencies unless the task asks for them.",
+  );
+  return parts.join("\n\n");
+}
+
+function renderExcerpts(path: string, lang: string, focus: FocusResult): string {
+  const body: string[] = [];
+  let cursor = 0;
+  for (const ex of focus.excerpts) {
+    if (ex.start > cursor) body.push(`⋯ (lines ${cursor + 1}–${ex.start} omitted)`);
+    body.push(ex.text);
+    cursor = ex.end + 1;
+  }
+  if (cursor < focus.totalLines) body.push(`⋯ (lines ${cursor + 1}–${focus.totalLines} omitted)`);
+  return `### ${path} (task-relevant excerpts — ${focus.shownLines} of ${focus.totalLines} lines; use read_file if you need more)\n\`\`\`\`${lang}\n${body.join("\n")}\n\`\`\`\``;
+}
+
+async function projectFacts(root: string): Promise<string> {
+  const lines: string[] = ["## Project"];
+  const pkg = await readJson(nodePath.join(root, "package.json"));
+  if (pkg) {
+    const deps: Record<string, string> = pkg.dependencies ?? {};
+    const devDeps: Record<string, string> = pkg.devDependencies ?? {};
+    const framework = deps.next ? `Next.js ${deps.next}` : deps.react ? `React ${deps.react}` : "Node/TypeScript";
+    lines.push(`- name: ${pkg.name ?? "unknown"}`);
+    lines.push(`- framework: ${framework}`);
+    const depNames = Object.keys(deps);
+    if (depNames.length > 0) lines.push(`- dependencies: ${depNames.slice(0, 25).join(", ")}`);
+    if (devDeps.typescript) lines.push(`- typescript: ${devDeps.typescript}`);
+    const scripts = Object.entries(pkg.scripts ?? {})
+      .slice(0, 10)
+      .map(([k, v]) => `${k}: \`${v}\``);
+    if (scripts.length > 0) lines.push(`- scripts: ${scripts.join("; ")}`);
+  }
+  const aliases = loadAliases(root);
+  if (aliases.length > 0) {
+    lines.push(`- path aliases: ${aliases.map((a) => `${a.prefix}* → ${a.targets.join(",")}/*`).join("; ")}`);
+  }
+  return lines.join("\n");
+}
+
+async function signaturesFor(project: Project, root: string, rel: string): Promise<string> {
+  const ext = nodePath.extname(rel);
+  if (!TS_EXTS.has(ext)) {
+    const content = await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "");
+    const head = content.split("\n").slice(0, 12).join("\n");
+    return `\`\`\`\`${LANG[ext] ?? ""}\n${head}\n\`\`\`\``;
+  }
+  try {
+    const sf = project.addSourceFileAtPath(nodePath.join(root, rel));
+    const lines: string[] = [];
+    for (const [, decls] of sf.getExportedDeclarations()) {
+      const decl = decls[0];
+      if (!decl) continue;
+      const kind = decl.getKindName();
+      const text = decl.getText();
+      if ((kind === "InterfaceDeclaration" || kind === "TypeAliasDeclaration") && text.split("\n").length <= 12) {
+        lines.push(text); // full shape matters and it's short
+      } else {
+        lines.push(firstLine(text));
+      }
+      if (lines.length >= MAX_SIGNATURES_PER_FILE) break;
+    }
+    return lines.length > 0 ? `\`\`\`\`ts\n${lines.join("\n")}\n\`\`\`\`` : "(no exports)";
+  } catch {
+    return "(unavailable)";
+  }
+}
+
+function firstLine(text: string): string {
+  const line = text.split("\n")[0].replace(/\s*\{$/, "");
+  return line.length > 140 ? `${line.slice(0, 137)}…` : line;
+}
+
+async function readJson(file: string): Promise<any | null> {
+  try {
+    return JSON.parse(await fs.readFile(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
