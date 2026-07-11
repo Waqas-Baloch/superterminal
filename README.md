@@ -9,7 +9,7 @@ Works on TypeScript/JavaScript/HTML/CSS repos; tuned for React/Next.js.
 One command (Node 20+ required):
 
 ```sh
-npm install -g glint-cli
+npm install -g @waqasbaloch/glint
 ```
 
 Then verify and connect:
