@@ -4,6 +4,23 @@
   "description": "Glint — compress your codebase into a task-specific manifest for any AI coding agent. Precision context, fewer tokens.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Waqas-Baloch/glint.git"
+  },
+  "homepage": "https://github.com/Waqas-Baloch/glint#readme",
+  "bugs": "https://github.com/Waqas-Baloch/glint/issues",
+  "keywords": [
+    "cli",
+    "ai",
+    "claude",
+    "cursor",
+    "codex",
+    "context",
+    "tokens",
+    "code-agent",
+    "llm"
+  ],
   "bin": {
     "glint": "dist/cli.js"
   },

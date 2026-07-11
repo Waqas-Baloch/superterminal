@@ -6,25 +6,28 @@ Works on TypeScript/JavaScript/HTML/CSS repos; tuned for React/Next.js.
 
 ## Install
 
-One command, straight from GitHub (Node 20+ required):
+One command (Node 20+ required):
 
 ```sh
-npm install -g github:YOUR_GITHUB_USERNAME/glint
+npm install -g glint-cli
 ```
 
-Then verify:
+Then verify and connect:
 
 ```sh
 glint --version
+glint connect
 ```
 
 > macOS/Linux: if npm complains about permissions, either run the command with `sudo`, or point npm at a user directory once: `npm config set prefix ~/.local` (make sure `~/.local/bin` is on your PATH).
 
-For local development instead:
+Alternatives:
 
 ```sh
-git clone https://github.com/YOUR_GITHUB_USERNAME/glint && cd glint
-npm install && npm run build && npm link
+npm install -g github:Waqas-Baloch/glint   # straight from GitHub (needs git)
+
+git clone https://github.com/Waqas-Baloch/glint && cd glint
+npm install && npm run build && npm link    # local development
 ```
 
 ## Connect (one time)
