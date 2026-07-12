@@ -4,9 +4,10 @@ import { planCommand } from "./commands/plan";
 import { runCommand } from "./commands/run";
 import { revertCommand } from "./commands/revert";
 import { connectCommand } from "./commands/connect";
+import { switchCommand } from "./commands/switch";
 import { renderHeader } from "./report/banner";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const program = new Command();
 
 program
@@ -36,22 +37,22 @@ program
 
 program
   .command("connect")
-  .description("one-time connection to your AI (API key, browser login, or Claude Code)")
+  .description("one-time connection to your AI (API key, browser login, Claude Code, Cursor, ChatGPT)")
   .action(connectCommand);
+
+program
+  .command("switch")
+  .description("switch the active coding agent (Claude Code / Cursor / ChatGPT / API)")
+  .action(switchCommand);
 
 program
   .command("revert")
   .description("restore files from the last run's backup")
   .action(revertCommand);
 
-// Bare `glint` (no command) shows the welcome header + how to start.
+// Bare `glint` (no command) shows the welcome box (wordmark + status + commands).
 if (process.argv.length <= 2) {
-  renderHeader(VERSION).then((header) => {
-    console.log(header);
-    console.log("  Get started:");
-    console.log("    glint connect            connect your AI (one time)");
-    console.log('    glint run "your task"    start a session\n');
-  });
+  renderHeader(VERSION).then((header) => console.log(header + "\n"));
 } else {
   program.parseAsync();
 }

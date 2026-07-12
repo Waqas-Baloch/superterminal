@@ -95,8 +95,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     return;
   }
 
-  log.info(await renderHeader("0.1.0"));
-  log.dim(`  in ${root}`);
+  log.info(await renderHeader("0.1.1"));
   log.dim("  Type a task and press enter. /exit (or Ctrl-C) to quit.");
   log.info("");
 
