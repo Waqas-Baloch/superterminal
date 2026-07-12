@@ -110,8 +110,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     const cmd = interpret(input);
     if (cmd.type === "clear") {
       process.stdout.write("\x1b[2J\x1b[3J\x1b[H"); // clear screen + scrollback, cursor home
-      ctx.memory = undefined; // fresh start — drop follow-up context too
-      log.info(await renderHeader(VERSION, "session"));
+      log.info(await renderHeader(VERSION, "session")); // follow-up context is kept
       input = await promptNextTask(false);
       continue; // skip the divider — keep the fresh screen clean
     }
@@ -225,7 +224,7 @@ function printSessionHelp(): void {
   log.info(`  ${pc.cyan("/switch")}        change coding agent (Claude Code / Cursor / ChatGPT / API)`);
   log.info(`  ${pc.cyan("/search")}        switch to a different project folder`);
   log.info(`  ${pc.cyan("/connect")}       set up or re-authenticate a provider`);
-  log.info(`  ${pc.cyan("/clear")}         clear the screen (and follow-up context)`);
+  log.info(`  ${pc.cyan("/clear")}         clear the screen (keeps your context)`);
   log.info(`  ${pc.cyan("/help")}          show this list`);
   log.info(`  ${pc.cyan("/exit")}          end the session`);
   log.info(pc.dim("  Anything else is treated as a task to run."));

@@ -1,12 +1,9 @@
 {
-  "name": "@waqasbaloch/glint",
+  "name": "getglint",
   "version": "0.1.8",
   "description": "Glint — compress your codebase into a task-specific manifest for any AI coding agent. Precision context, fewer tokens.",
   "type": "module",
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Waqas-Baloch/glint.git"

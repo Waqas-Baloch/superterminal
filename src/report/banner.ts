@@ -142,6 +142,7 @@ export async function renderHeader(version: string, mode: "welcome" | "session" 
   if (rightW < 26) return stacked(version, art, dot, conn, name);
 
   const left: string[] = [
+    "", // top margin so the logo doesn't hug the border
     ...art.map((r) => center(lime(r), leftW)),
     "",
     center(limeBold(`Welcome, ${name}!`), leftW),
@@ -171,6 +172,7 @@ export async function renderHeader(version: string, mode: "welcome" | "session" 
           cmd("glint plan", '"task"', "preview (free)"),
         ];
   const right: string[] = [
+    "", // align with the left column's top margin
     pc.bold("What is Glint?"),
     ...wrap(DESCRIPTION, rightW).map((l) => pc.dim(l)),
     "",
