@@ -15,6 +15,7 @@ import { renderHeader } from "../report/banner";
 import { VERSION } from "../version";
 import { switchCommand } from "./switch";
 import { connectCommand } from "./connect";
+import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
 import {
@@ -99,7 +100,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   log.info(await renderHeader(VERSION));
-  log.dim("  Type a task and press enter. Commands: /switch  /connect  /help  /exit");
+  log.dim("  Type a task and press enter. Commands: /switch  /search  /connect  /help  /exit");
   log.info("");
 
   let input = taskArg ?? (await promptNextTask(true));
@@ -110,6 +111,9 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
       command === "switch" ? await switchCommand() : await connectCommand();
       const refreshed = await resolveAuth(); // pick up the newly chosen agent
       if (refreshed) ctx.auth = refreshed;
+    } else if (command === "search") {
+      const picked = await pickProject();
+      if (picked) await retargetRoot(ctx, picked);
     } else if (command === "help") {
       printSessionHelp();
     } else {
@@ -127,11 +131,23 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   log.info(pc.dim(`Session closed — ${count} task(s) run.`));
 }
 
+/** Point the session at a different project mid-session. Reloads config, drops follow-up memory. */
+async function retargetRoot(ctx: ExecContext, newRoot: string): Promise<void> {
+  process.chdir(newRoot);
+  ctx.root = newRoot;
+  ctx.config = await loadConfig(newRoot);
+  ctx.budget = ctx.opts.budget ? Number(ctx.opts.budget) : ctx.config.budgetTokens;
+  ctx.model = ctx.opts.model ?? ctx.config.model;
+  ctx.memory = undefined; // follow-up context is project-specific
+  log.success(`Now working in ${pc.bold(homeRelative(newRoot))}`);
+}
+
 /** Recognize in-session commands so "/switch" or "glint switch" don't get run as a task. */
-function parseSessionCommand(input: string): "switch" | "connect" | "help" | null {
+function parseSessionCommand(input: string): "switch" | "connect" | "search" | "help" | null {
   const t = input.trim().toLowerCase().replace(/^glint\s+/, "").replace(/^\//, "");
   if (t === "switch") return "switch";
   if (t === "connect") return "connect";
+  if (t === "search" || t === "cd" || t === "project") return "search";
   if (t === "help" || t === "?" || t === "commands") return "help";
   return null;
 }
@@ -140,6 +156,7 @@ function printSessionHelp(): void {
   log.info("");
   log.info(pc.bold("In-session commands:"));
   log.info(`  ${pc.cyan("/switch")}    change coding agent (Claude Code / Cursor / ChatGPT / API)`);
+  log.info(`  ${pc.cyan("/search")}    switch to a different project folder`);
   log.info(`  ${pc.cyan("/connect")}   set up or re-authenticate a provider`);
   log.info(`  ${pc.cyan("/help")}      show this list`);
   log.info(`  ${pc.cyan("/exit")}      end the session`);

@@ -58,11 +58,28 @@ glint plan "add checkout form"
 glint run "add checkout form"
 glint run              # start an empty session
 
+# Find a project anywhere and start a session there
+glint search           # pick from projects found nearby
+glint search shop      # filter by name
+
+# Change the active coding agent (Claude Code / Cursor / ChatGPT / API)
+glint switch
+
 # Undo the last run
 glint revert
 ```
 
 In a terminal, `glint run` is a persistent session — after each task finishes you're prompted for the next one, chat-style, until `/exit` or Ctrl-C. With `--yes` or piped input it behaves as a single-shot command for scripts/CI.
+
+**Inside a session** you can type commands instead of a task:
+
+| Command | Does |
+|---|---|
+| `/switch` | change the coding agent, mid-session |
+| `/search` | switch to a different project folder |
+| `/connect` | set up or re-authenticate a provider |
+| `/help` | list these commands |
+| `/exit` | end the session |
 
 If your chosen agent CLI (Claude Code / Cursor / Codex) isn't installed, `glint connect` offers to install it and run its login for you.
 

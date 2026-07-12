@@ -5,6 +5,7 @@ import { runCommand } from "./commands/run";
 import { revertCommand } from "./commands/revert";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
+import { searchCommand } from "./commands/search";
 import { renderHeader } from "./report/banner";
 import { VERSION } from "./version";
 
@@ -44,6 +45,12 @@ program
   .command("switch")
   .description("switch the active coding agent (Claude Code / Cursor / ChatGPT / API)")
   .action(switchCommand);
+
+program
+  .command("search")
+  .argument("[query]", "optional name filter, e.g. glint search shop")
+  .description("find a project folder and start a session there")
+  .action(searchCommand);
 
 program
   .command("revert")
