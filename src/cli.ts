@@ -6,8 +6,8 @@ import { revertCommand } from "./commands/revert";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { renderHeader } from "./report/banner";
+import { VERSION } from "./version";
 
-const VERSION = "0.1.1";
 const program = new Command();
 
 program

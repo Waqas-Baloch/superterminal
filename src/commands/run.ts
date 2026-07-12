@@ -12,6 +12,7 @@ import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
 import { renderHeader } from "../report/banner";
+import { VERSION } from "../version";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
 import {
@@ -95,7 +96,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     return;
   }
 
-  log.info(await renderHeader("0.1.1"));
+  log.info(await renderHeader(VERSION));
   log.dim("  Type a task and press enter. /exit (or Ctrl-C) to quit.");
   log.info("");
 
