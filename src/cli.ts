@@ -33,6 +33,8 @@ program
   .argument("<task>", "task description")
   .option("--budget <tokens>", "manifest token budget")
   .option("--no-focus", "send whole files instead of task-relevant excerpts")
+  .option("--show", "print the full generated manifest")
+  .option("--out <file>", "write the manifest to a file")
   .description("dry run: show what would be selected and sent, without calling Claude")
   .action(planCommand);
 

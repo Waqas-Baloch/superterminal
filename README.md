@@ -53,6 +53,8 @@ Pick how Glint talks to Claude:
 ```sh
 # Dry run — see exactly what would be selected and sent (no API call)
 glint plan "add checkout form"
+glint plan "add checkout form" --show          # print the full manifest
+glint plan "add checkout form" --out ctx.md    # save the manifest to a file
 
 # Start a session: runs the task, then keeps taking tasks until /exit
 glint run "add checkout form"
@@ -70,6 +72,8 @@ glint revert
 ```
 
 In a terminal, `glint run` is a persistent session — after each task finishes you're prompted for the next one, chat-style, until `/exit` or Ctrl-C. With `--yes` or piped input it behaves as a single-shot command for scripts/CI.
+
+At the send confirmation you can **View** the exact manifest or **Edit** it in your `$EDITOR` before it goes out — so if the selected context isn't quite right, you can tweak it first.
 
 **Inside a session** you can type commands instead of a task:
 

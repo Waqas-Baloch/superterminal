@@ -36,6 +36,7 @@ import { renderFileDiff } from "../report/diff";
 import { loadConfig, type GlintConfig } from "../util/config";
 import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens, formatTokens } from "../util/tokens";
+import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { printSelection, printManifestBox } from "./shared";
 
@@ -308,8 +309,8 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     manifest = await generateManifest({ root, task: finalTask, selection, focus: opts.focus, sessionNote });
   }
 
-  // 4: manifest + confirm
-  const manifestTokens = estimateTokens(manifest);
+  // 4: manifest + confirm (with view / edit before sending)
+  let manifestTokens = estimateTokens(manifest);
   const target = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : model;
   printManifestBox({
     tokens: manifestTokens,
@@ -319,10 +320,47 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   });
 
   if (!opts.yes) {
-    const { go } = await prompts({ type: "confirm", name: "go", message: "Send to Claude?", initial: true });
-    if (!go) {
-      log.info("Aborted — nothing was sent.");
-      return;
+    for (;;) {
+      const { action } = await prompts({
+        type: "select",
+        name: "action",
+        message: `Send to ${target}?`,
+        choices: [
+          { title: "Send", value: "send" },
+          { title: "View manifest", description: "see exactly what will be sent", value: "view" },
+          { title: "Edit manifest", description: "open in your editor and tweak the context", value: "edit" },
+          { title: "Cancel", value: "cancel" },
+        ],
+        initial: 0,
+      });
+      if (action === undefined || action === "cancel") {
+        log.info("Aborted — nothing was sent.");
+        return;
+      }
+      if (action === "view") {
+        log.info("");
+        log.info(pc.dim("─".repeat(68)));
+        log.info(manifest);
+        log.info(pc.dim("─".repeat(68)));
+        log.info("");
+        continue;
+      }
+      if (action === "edit") {
+        try {
+          const edited = await openInEditor(manifest, "md");
+          if (edited.trim() && edited !== manifest) {
+            manifest = edited;
+            manifestTokens = estimateTokens(manifest);
+            log.success(`Manifest updated — now ~${formatTokens(manifestTokens)} tokens`);
+          } else {
+            log.dim("No changes.");
+          }
+        } catch {
+          log.warn("Couldn't open an editor. Set $EDITOR (e.g. `export EDITOR=nano`) and retry, or Send as-is.");
+        }
+        continue;
+      }
+      break; // send
     }
   }
 

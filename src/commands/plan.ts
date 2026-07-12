@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import nodePath from "node:path";
 import ora from "ora";
 import pc from "picocolors";
 import { indexRepo } from "../core/indexer";
@@ -9,7 +11,14 @@ import { estimateTokens, formatTokens } from "../util/tokens";
 import { log } from "../util/logger";
 import { printSelection, printManifestBox } from "./shared";
 
-export async function planCommand(task: string, opts: { budget?: string; focus?: boolean }): Promise<void> {
+interface PlanOptions {
+  budget?: string;
+  focus?: boolean;
+  show?: boolean; // print the full manifest markdown
+  out?: string; // write the manifest to a file
+}
+
+export async function planCommand(task: string, opts: PlanOptions): Promise<void> {
   const root = process.cwd();
   const config = await loadConfig(root);
   const budget = opts.budget ? Number(opts.budget) : config.budgetTokens;
@@ -48,7 +57,24 @@ export async function planCommand(task: string, opts: { budget?: string; focus?:
     target: "dry run",
     detail: `repo is ~${formatTokens(repoTokens)} tokens — sending ${percent(manifestTokens, repoTokens)}`,
   });
-  log.dim("Dry run — nothing sent. Execute with `glint run`.");
+
+  if (opts.out) {
+    const outPath = nodePath.resolve(root, opts.out);
+    await fs.writeFile(outPath, manifest);
+    log.success(`Manifest written to ${opts.out}`);
+  }
+  if (opts.show) {
+    log.info("");
+    log.info(pc.dim("─".repeat(68)));
+    log.info(manifest);
+    log.info(pc.dim("─".repeat(68)));
+  }
+
+  log.dim(
+    opts.show || opts.out
+      ? "Dry run — nothing sent. Execute with `glint run`."
+      : "Dry run — nothing sent. Add `--show` to see the manifest, or run it with `glint run`.",
+  );
 }
 
 function percent(part: number, whole: number): string {
