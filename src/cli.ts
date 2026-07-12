@@ -4,13 +4,15 @@ import { planCommand } from "./commands/plan";
 import { runCommand } from "./commands/run";
 import { revertCommand } from "./commands/revert";
 import { connectCommand } from "./commands/connect";
+import { renderHeader } from "./report/banner";
 
+const VERSION = "0.1.0";
 const program = new Command();
 
 program
   .name("glint")
   .description("Compress a codebase into a task-specific manifest for any AI coding agent")
-  .version("0.1.0");
+  .version(VERSION);
 
 program
   .command("run")
@@ -42,4 +44,14 @@ program
   .description("restore files from the last run's backup")
   .action(revertCommand);
 
-program.parseAsync();
+// Bare `glint` (no command) shows the welcome header + how to start.
+if (process.argv.length <= 2) {
+  renderHeader(VERSION).then((header) => {
+    console.log(header);
+    console.log("  Get started:");
+    console.log("    glint connect            connect your AI (one time)");
+    console.log('    glint run "your task"    start a session\n');
+  });
+} else {
+  program.parseAsync();
+}

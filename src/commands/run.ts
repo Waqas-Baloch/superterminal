@@ -11,6 +11,7 @@ import { askClarifications, compileTask } from "../core/clarify";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
+import { renderHeader } from "../report/banner";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
 import {
@@ -94,9 +95,9 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     return;
   }
 
-  log.info("");
-  log.info(pc.bold("Glint session") + pc.dim(` — via ${auth.source}, in ${root}`));
-  log.dim("Type a task and press enter. /exit (or Ctrl-C) to quit.");
+  log.info(await renderHeader("0.1.0"));
+  log.dim(`  in ${root}`);
+  log.dim("  Type a task and press enter. /exit (or Ctrl-C) to quit.");
   log.info("");
 
   let task = taskArg ?? (await promptNextTask(true));
