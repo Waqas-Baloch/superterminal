@@ -108,6 +108,13 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   let count = 0;
   while (input) {
     const cmd = interpret(input);
+    if (cmd.type === "clear") {
+      process.stdout.write("\x1b[2J\x1b[3J\x1b[H"); // clear screen + scrollback, cursor home
+      ctx.memory = undefined; // fresh start — drop follow-up context too
+      log.info(await renderHeader(VERSION, "session"));
+      input = await promptNextTask(false);
+      continue; // skip the divider — keep the fresh screen clean
+    }
     if (cmd.type === "switch" || cmd.type === "connect") {
       cmd.type === "switch" ? await switchCommand() : await connectCommand();
       const refreshed = await resolveAuth(); // pick up the newly chosen agent
@@ -147,6 +154,7 @@ type SessionCommand =
   | { type: "connect" }
   | { type: "search" }
   | { type: "help" }
+  | { type: "clear" }
   | { type: "hint"; message: string };
 
 /**
@@ -156,7 +164,7 @@ type SessionCommand =
  */
 function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|glint\s+)(run|plan|switch|connect|search|help)\b\s*(.*)$/i);
+  const m = raw.match(/^(?:\/|glint\s+)(run|plan|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
     const rest = m[2].trim();
@@ -174,7 +182,9 @@ function interpret(input: string): SessionCommand {
   }
   // bare no-arg command words
   const bare = raw.toLowerCase();
-  const nav = navCommand(bare === "cd" || bare === "project" ? "search" : bare === "?" || bare === "commands" ? "help" : bare);
+  const alias =
+    bare === "cd" || bare === "project" ? "search" : bare === "?" || bare === "commands" ? "help" : bare === "cls" ? "clear" : bare;
+  const nav = navCommand(alias);
   if (nav) return nav;
   return { type: "task", task: raw };
 }
@@ -189,6 +199,9 @@ function navCommand(name: string): SessionCommand | null {
       return { type: "search" };
     case "help":
       return { type: "help" };
+    case "clear":
+    case "cls":
+      return { type: "clear" };
     default:
       return null;
   }
@@ -212,6 +225,7 @@ function printSessionHelp(): void {
   log.info(`  ${pc.cyan("/switch")}        change coding agent (Claude Code / Cursor / ChatGPT / API)`);
   log.info(`  ${pc.cyan("/search")}        switch to a different project folder`);
   log.info(`  ${pc.cyan("/connect")}       set up or re-authenticate a provider`);
+  log.info(`  ${pc.cyan("/clear")}         clear the screen (and follow-up context)`);
   log.info(`  ${pc.cyan("/help")}          show this list`);
   log.info(`  ${pc.cyan("/exit")}          end the session`);
   log.info(pc.dim("  Anything else is treated as a task to run."));

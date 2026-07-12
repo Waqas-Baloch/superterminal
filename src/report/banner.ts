@@ -160,6 +160,7 @@ export async function renderHeader(version: string, mode: "welcome" | "session" 
           cmd("/plan", "<task>", "preview, don't send"),
           cmd("/switch", "", "change agent"),
           cmd("/search", "", "switch project"),
+          cmd("/clear", "", "clean the screen"),
           cmd("/exit", "", "quit"),
         ]
       : [
