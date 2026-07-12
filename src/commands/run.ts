@@ -19,18 +19,7 @@ import { planCommand } from "./plan";
 import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
-import {
-  AGENT_CLIS,
-  runAgent,
-  continueAgent,
-  isGitRepo,
-  hasHeadCommit,
-  gitInit,
-  gitBaselineCommit,
-  gitDirtyFiles,
-  gitBefore,
-  type AgentCliDef,
-} from "../claude/agentCli";
+import { AGENT_CLIS, runAgent, continueAgent, type AgentCliDef } from "../claude/agentCli";
 import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
 import { loadConfig, type GlintConfig } from "../util/config";
@@ -366,7 +355,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
 
   const outcome =
     auth.mode === "agent-cli"
-      ? await runViaAgentCli(root, manifest, opts, AGENT_CLIS[auth.agent])
+      ? await runViaAgentCli(root, manifest, opts, AGENT_CLIS[auth.agent], index, config)
       : await runViaApi(root, manifest, model, auth, index, opts);
 
   if (outcome) {
@@ -504,27 +493,22 @@ async function runViaAgentCli(
   manifest: string,
   opts: RunOptions,
   agent: AgentCliDef,
+  index: RepoIndex,
+  config: GlintConfig,
 ): Promise<RunOutcome | null> {
-  if (!(await ensureGitBaseline(root, opts))) {
-    process.exitCode = 1;
-    return null;
-  }
+  const runId = new Date().toISOString().replace(/[:.]/g, "-");
+  // Snapshot file contents up front so we can diff (and revert) without git.
+  const snapshot = await snapshotContents(root, index);
 
-  const dirtyBefore = await gitDirtyFiles(root);
-  if (dirtyBefore.size > 0) {
-    log.warn(`${dirtyBefore.size} file(s) already have uncommitted changes — glint will only report files touched by this run.`);
-  }
-
-  const work = ora(`${agent.title} is working… (this can take a few minutes)`).start();
-  let summary: string;
+  log.info("");
+  log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
   try {
-    summary = await runAgent(agent, root, `${manifest}\n\nImplement the task now with the smallest correct change set.`);
+    await runAgent(agent, root, `${manifest}\n\nImplement the task now with the smallest correct change set.`);
   } catch (err) {
-    work.fail(err instanceof Error ? err.message : String(err));
+    log.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
     return null;
   }
-  work.succeed(`${agent.title} finished`);
 
   let validationFailed = false;
   if (opts.validate !== false) {
@@ -535,104 +519,104 @@ async function runViaAgentCli(
       if (failed.length === 0) break;
       if (attempt >= MAX_REPAIRS) {
         validationFailed = true;
-        log.error(`Validation still failing after ${MAX_REPAIRS} repair attempts — review with git diff.`);
+        log.error(`Validation still failing after ${MAX_REPAIRS} repair attempts — review the diff below.`);
         break;
       }
-      const rSpin = ora(`Repair attempt ${attempt + 1}/${MAX_REPAIRS}…`).start();
+      log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
       try {
-        summary = await continueAgent(agent, root, repairPrompt(failed));
+        await continueAgent(agent, root, repairPrompt(failed));
       } catch (err) {
-        rSpin.fail(err instanceof Error ? err.message : String(err));
+        log.error(err instanceof Error ? err.message : String(err));
         validationFailed = true;
         break;
       }
-      rSpin.succeed(`Repair attempt ${attempt + 1} applied`);
     }
   }
 
-  const dirtyAfter = await gitDirtyFiles(root);
-  const touched = [...dirtyAfter].filter((p) => !dirtyBefore.has(p)).sort();
-
-  if (touched.length === 0) {
+  // Detect what changed by comparing the tree against the pre-run snapshot.
+  const changes = await backupAndDiff(root, config, snapshot, runId);
+  if (changes.length === 0) {
     log.info("");
-    log.info(summary || `${agent.title} made no edits.`);
-    return { touched: [], summary };
+    log.info(`${agent.title} made no tracked edits.`);
+    return { touched: [], summary: "" };
   }
 
   let totalAdded = 0;
   let totalRemoved = 0;
   log.info("");
   log.info(pc.bold("Changes:"));
-  for (const rel of touched) {
-    const after = await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "");
-    const before = await gitBefore(root, rel);
-    const d = renderFileDiff(rel, before ?? "", after, before === null);
+  for (const c of changes) {
+    const d = renderFileDiff(c.path, c.before, c.after, c.created);
     totalAdded += d.added;
     totalRemoved += d.removed;
-    printFileDiff(rel, before === null, d.added, d.removed, d.rendered);
+    printFileDiff(c.path, c.created, d.added, d.removed, d.rendered);
   }
 
   log.info("");
-  log.info(`${touched.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
-  if (summary) {
-    log.info("");
-    log.info(summary);
-  }
+  log.info(`${changes.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   log.info("");
   log.dim(`Billing: ${agent.billingNote}.`);
-  log.dim("Undo with git: `git checkout -- <file>` for edits, `git clean -f <file>` for new files.");
+  log.dim("Undo anytime with `glint revert`.");
 
   if (validationFailed) process.exitCode = 1;
-  return { touched, summary };
+  return { touched: changes.map((c) => c.path), summary: "" };
+}
+
+interface FileChange {
+  path: string;
+  before: string;
+  after: string;
+  created: boolean;
+}
+
+/** Read current contents of every indexed file — the baseline for git-free change tracking. */
+async function snapshotContents(root: string, index: RepoIndex): Promise<Map<string, string>> {
+  const snap = new Map<string, string>();
+  for (const f of index.files) {
+    const content = await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => null);
+    if (content !== null) snap.set(f.path, content);
+  }
+  return snap;
 }
 
 /**
- * Agent-CLI providers track and undo edits through git. If the folder
- * isn't a repo yet (common for quick HTML/CSS projects), offer to set one up
- * instead of erroring out.
+ * Compare the tree against the snapshot, back up modified originals to
+ * .glint/backup/<runId>/ (so `glint revert` works), and return the diffs.
  */
-async function ensureGitBaseline(root: string, opts: RunOptions): Promise<boolean> {
-  if (await isGitRepo(root)) {
-    if (!(await hasHeadCommit(root))) {
-      await writeDefaultGitignore(root);
-      await gitBaselineCommit(root);
-      log.success("Committed a baseline snapshot (the repo had no commits yet).");
+async function backupAndDiff(
+  root: string,
+  config: GlintConfig,
+  snapshot: Map<string, string>,
+  runId: string,
+): Promise<FileChange[]> {
+  const after = await indexRepo(root, config); // re-scan to pick up newly created files
+  const backupFilesDir = nodePath.join(root, ".glint", "backup", runId, "files");
+  const created: string[] = [];
+  const changes: FileChange[] = [];
+
+  for (const f of after.files) {
+    const afterContent = await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => null);
+    if (afterContent === null) continue;
+    const before = snapshot.get(f.path);
+    if (before === undefined) {
+      created.push(f.path);
+      changes.push({ path: f.path, before: "", after: afterContent, created: true });
+    } else if (before !== afterContent) {
+      const backupPath = nodePath.join(backupFilesDir, f.path);
+      await fs.mkdir(nodePath.dirname(backupPath), { recursive: true });
+      await fs.writeFile(backupPath, before);
+      changes.push({ path: f.path, before, after: afterContent, created: false });
     }
-    return true;
   }
 
-  log.warn("This folder isn't a git repository. Glint uses git to track and undo the agent's edits.");
-  let go = opts.yes === true;
-  if (!go) {
-    const answer = await prompts({
-      type: "confirm",
-      name: "go",
-      message: "Initialize git here now? (git init + baseline commit — nothing leaves your machine)",
-      initial: true,
-    });
-    go = answer.go === true;
+  if (created.length > 0) {
+    await fs.mkdir(nodePath.join(root, ".glint", "backup", runId), { recursive: true });
+    await fs.writeFile(
+      nodePath.join(root, ".glint", "backup", runId, "created.json"),
+      JSON.stringify(created, null, 2),
+    );
   }
-  if (!go) {
-    log.info("Aborted. Run `git init` yourself, or connect with an API key instead (`glint connect`).");
-    return false;
-  }
-
-  await gitInit(root);
-  await writeDefaultGitignore(root);
-  await gitBaselineCommit(root);
-  log.success("Initialized git and committed a baseline snapshot.");
-  return true;
-}
-
-/** Keep the baseline commit from swallowing junk when the project has no .gitignore. */
-async function writeDefaultGitignore(root: string): Promise<void> {
-  const file = nodePath.join(root, ".gitignore");
-  try {
-    await fs.access(file);
-  } catch {
-    await fs.writeFile(file, "node_modules/\ndist/\nbuild/\n.glint/\n*.log\n");
-    log.dim("Created a default .gitignore (node_modules, dist, .glint).");
-  }
+  return changes.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 // ---------------------------------------------------------------------------

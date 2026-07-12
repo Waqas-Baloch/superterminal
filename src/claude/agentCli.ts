@@ -58,8 +58,15 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     loginArgs: ["login"],
     loginHint: "run `codex login` with your ChatGPT account",
     billingNote: "covered by your ChatGPT plan",
-    runArgs: (p) => ["exec", "--sandbox", "workspace-write", p],
-    continueArgs: (p) => ["exec", "--sandbox", "workspace-write", `You just made edits in this repository. ${p}`],
+    // --skip-git-repo-check lets Codex run in folders that aren't git repos
+    runArgs: (p) => ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", p],
+    continueArgs: (p) => [
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "--skip-git-repo-check",
+      `You just made edits in this repository. ${p}`,
+    ],
   },
 };
 
@@ -70,26 +77,30 @@ export function pathWithLocalBin(): string {
   return current.split(":").includes(local) ? current : `${local}:${current}`;
 }
 
-export async function runAgent(agent: AgentCliDef, root: string, prompt: string): Promise<string> {
+export async function runAgent(agent: AgentCliDef, root: string, prompt: string): Promise<void> {
   return invoke(agent, root, agent.runArgs(prompt));
 }
 
-export async function continueAgent(agent: AgentCliDef, root: string, prompt: string): Promise<string> {
+export async function continueAgent(agent: AgentCliDef, root: string, prompt: string): Promise<void> {
   return invoke(agent, root, agent.continueArgs(prompt));
 }
 
-async function invoke(agent: AgentCliDef, root: string, args: string[]): Promise<string> {
+async function invoke(agent: AgentCliDef, root: string, args: string[]): Promise<void> {
+  // Show the agent's output live (inherit stdout/stderr) so the user sees it
+  // working and can read any errors. Inherit stdin only in a real terminal —
+  // in a pipe/CI, feed EOF instead so an agent that checks stdin runs
+  // non-interactively rather than blocking forever.
+  const stdinMode = process.stdin.isTTY ? "inherit" : "ignore";
   const result = await execa(agent.bin, args, {
     cwd: root,
     reject: false,
     timeout: AGENT_TIMEOUT_MS,
-    env: { ...process.env, FORCE_COLOR: "0", PATH: pathWithLocalBin() },
+    stdio: [stdinMode, "inherit", "inherit"],
+    env: { ...process.env, PATH: pathWithLocalBin() },
   });
   if (result.exitCode !== 0) {
-    const tail = (result.stderr || result.stdout || "unknown error").toString().slice(-600);
-    throw new Error(`${agent.bin} failed: ${tail}`);
+    throw new Error(`${agent.bin} exited with code ${result.exitCode} (see its output above)`);
   }
-  return (result.stdout ?? "").toString().trim();
 }
 
 // --- git helpers (change tracking + undo for passthrough providers) --------

@@ -19,7 +19,13 @@ describe("agent CLI registry", () => {
   it("composes headless args for each agent", () => {
     expect(AGENT_CLIS["claude-code"].runArgs("do x")).toEqual(["-p", "do x", "--permission-mode", "acceptEdits"]);
     expect(AGENT_CLIS.cursor.runArgs("do x")).toEqual(["-p", "do x", "--force"]);
-    expect(AGENT_CLIS.codex.runArgs("do x")).toEqual(["exec", "--sandbox", "workspace-write", "do x"]);
+    expect(AGENT_CLIS.codex.runArgs("do x")).toEqual([
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "--skip-git-repo-check",
+      "do x",
+    ]);
   });
 
   it("continuation keeps the repair prompt intact", () => {

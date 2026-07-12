@@ -42,9 +42,9 @@ Pick how Glint talks to Claude:
 |---|---|---|
 | **Anthropic API key** | Key from console.anthropic.com | Verified, then stored in `~/.glint/config.json` (chmod 600) |
 | **Browser login** | The `ant` CLI installed | Opens `ant auth login` — no key ever stored |
-| **Claude Code** | The `claude` CLI installed | Reuses your Claude subscription; edits tracked and undone via git |
-| **Cursor** | The `cursor-agent` CLI installed | Reuses your Cursor subscription; same git-based tracking |
-| **ChatGPT (Codex)** | The `codex` CLI installed (`npm i -g @openai/codex`) | Reuses your ChatGPT plan; same git-based tracking |
+| **Claude Code** | The `claude` CLI installed | Reuses your Claude subscription; runs live, undo with `glint revert` |
+| **Cursor** | The `cursor-agent` CLI installed | Reuses your Cursor subscription; no git required |
+| **ChatGPT (Codex)** | The `codex` CLI installed (`npm i -g @openai/codex`) | Reuses your ChatGPT plan; no git required |
 
 `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` env vars always take precedence over the stored connection (for CI).
 

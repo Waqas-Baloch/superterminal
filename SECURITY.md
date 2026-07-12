@@ -35,8 +35,9 @@ Code / Cursor / ChatGPT CLIs).
   and rejected if it escapes the repo root; `.git`, `node_modules`, lockfiles,
   and `.glint` are never editable.
 - Edits are **staged in memory**, the originals are **backed up**, then applied.
-  `glint revert` restores the last run. In agent-CLI mode, changes are tracked
-  and undone through **git**.
+  In agent-CLI mode, Glint snapshots your files before the run and diffs against
+  the snapshot afterward (no git required). Either way, **`glint revert`**
+  restores the last run from the backup.
 
 ## Running in untrusted repositories
 
