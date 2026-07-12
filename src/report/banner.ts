@@ -125,7 +125,7 @@ const DESCRIPTION =
  * connection on the left, a divider, description + getting-started on the
  * right. Falls back to a stacked layout when the terminal is too narrow.
  */
-export async function renderHeader(version: string): Promise<string> {
+export async function renderHeader(version: string, mode: "welcome" | "session" = "welcome"): Promise<string> {
   const conn = await connectionInfo();
   const name = await userName();
   const art = wordmarkRows("glint");
@@ -152,15 +152,28 @@ export async function renderHeader(version: string): Promise<string> {
 
   const cmd = (name: string, arg: string, desc: string) =>
     `${lime(name)}${arg ? " " + pc.dim(arg) : ""}  ${pc.dim(desc)}`;
+  const commands =
+    mode === "session"
+      ? [
+          pc.bold("In this session"),
+          cmd("type a task", "", "run it now"),
+          cmd("/plan", "<task>", "preview, don't send"),
+          cmd("/switch", "", "change agent"),
+          cmd("/search", "", "switch project"),
+          cmd("/exit", "", "quit"),
+        ]
+      : [
+          pc.bold("Getting started"),
+          cmd("glint run", '"task"', "start a session"),
+          cmd("glint switch", "", "change agent"),
+          cmd("glint search", "", "switch project"),
+          cmd("glint plan", '"task"', "preview (free)"),
+        ];
   const right: string[] = [
     pc.bold("What is Glint?"),
     ...wrap(DESCRIPTION, rightW).map((l) => pc.dim(l)),
     "",
-    pc.bold("Getting started"),
-    cmd("glint run", '"task"', "start a session"),
-    cmd("glint switch", "", "change agent"),
-    cmd("glint search", "", "switch project"),
-    cmd("glint plan", '"task"', "preview (free)"),
+    ...commands,
   ];
 
   const rows = Math.max(left.length, right.length);

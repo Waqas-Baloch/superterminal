@@ -15,6 +15,7 @@ import { renderHeader } from "../report/banner";
 import { VERSION } from "../version";
 import { switchCommand } from "./switch";
 import { connectCommand } from "./connect";
+import { planCommand } from "./plan";
 import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
@@ -99,27 +100,35 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     return;
   }
 
-  log.info(await renderHeader(VERSION));
-  log.dim("  Type a task and press enter. Commands: /switch  /search  /connect  /help  /exit");
+  log.info(await renderHeader(VERSION, "session"));
+  log.dim("  Type a task, or a /command. /help lists them.");
   log.info("");
 
   let input = taskArg ?? (await promptNextTask(true));
   let count = 0;
   while (input) {
-    const command = parseSessionCommand(input);
-    if (command === "switch" || command === "connect") {
-      command === "switch" ? await switchCommand() : await connectCommand();
+    const cmd = interpret(input);
+    if (cmd.type === "switch" || cmd.type === "connect") {
+      cmd.type === "switch" ? await switchCommand() : await connectCommand();
       const refreshed = await resolveAuth(); // pick up the newly chosen agent
       if (refreshed) ctx.auth = refreshed;
-    } else if (command === "search") {
+    } else if (cmd.type === "search") {
       const picked = await pickProject();
       if (picked) await retargetRoot(ctx, picked);
-    } else if (command === "help") {
+    } else if (cmd.type === "help") {
       printSessionHelp();
+    } else if (cmd.type === "hint") {
+      log.info(cmd.message);
+    } else if (cmd.type === "plan") {
+      try {
+        await planCommand(cmd.task, { budget: ctx.opts.budget, focus: ctx.opts.focus });
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+      }
     } else {
       count++;
       try {
-        await executeTask(input, ctx);
+        await executeTask(cmd.task, ctx);
       } catch (err) {
         log.error(err instanceof Error ? err.message : String(err));
       }
@@ -129,6 +138,60 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     input = await promptNextTask(false);
   }
   log.info(pc.dim(`Session closed — ${count} task(s) run.`));
+}
+
+type SessionCommand =
+  | { type: "task"; task: string }
+  | { type: "plan"; task: string }
+  | { type: "switch" }
+  | { type: "connect" }
+  | { type: "search" }
+  | { type: "help" }
+  | { type: "hint"; message: string };
+
+/**
+ * Interpret a line typed at the session prompt. Recognizes /commands and the
+ * `glint <cmd>` forms (which people naturally type, having seen the header),
+ * so they aren't mistaken for tasks. Everything else is a task.
+ */
+function interpret(input: string): SessionCommand {
+  const raw = input.trim();
+  const m = raw.match(/^(?:\/|glint\s+)(run|plan|switch|connect|search|help)\b\s*(.*)$/i);
+  if (m) {
+    const name = m[1].toLowerCase();
+    const rest = m[2].trim();
+    const nav = navCommand(name);
+    if (nav) return nav;
+    if (name === "plan") {
+      return rest
+        ? { type: "plan", task: rest }
+        : { type: "hint", message: `${pc.cyan("/plan")} needs a task — e.g. ${pc.bold('/plan add a login form')}` };
+    }
+    // "run"
+    return rest
+      ? { type: "task", task: rest }
+      : { type: "hint", message: "Just type your task directly — e.g. " + pc.bold('"add a checkout form"') };
+  }
+  // bare no-arg command words
+  const bare = raw.toLowerCase();
+  const nav = navCommand(bare === "cd" || bare === "project" ? "search" : bare === "?" || bare === "commands" ? "help" : bare);
+  if (nav) return nav;
+  return { type: "task", task: raw };
+}
+
+function navCommand(name: string): SessionCommand | null {
+  switch (name) {
+    case "switch":
+      return { type: "switch" };
+    case "connect":
+      return { type: "connect" };
+    case "search":
+      return { type: "search" };
+    case "help":
+      return { type: "help" };
+    default:
+      return null;
+  }
 }
 
 /** Point the session at a different project mid-session. Reloads config, drops follow-up memory. */
@@ -142,24 +205,15 @@ async function retargetRoot(ctx: ExecContext, newRoot: string): Promise<void> {
   log.success(`Now working in ${pc.bold(homeRelative(newRoot))}`);
 }
 
-/** Recognize in-session commands so "/switch" or "glint switch" don't get run as a task. */
-function parseSessionCommand(input: string): "switch" | "connect" | "search" | "help" | null {
-  const t = input.trim().toLowerCase().replace(/^glint\s+/, "").replace(/^\//, "");
-  if (t === "switch") return "switch";
-  if (t === "connect") return "connect";
-  if (t === "search" || t === "cd" || t === "project") return "search";
-  if (t === "help" || t === "?" || t === "commands") return "help";
-  return null;
-}
-
 function printSessionHelp(): void {
   log.info("");
   log.info(pc.bold("In-session commands:"));
-  log.info(`  ${pc.cyan("/switch")}    change coding agent (Claude Code / Cursor / ChatGPT / API)`);
-  log.info(`  ${pc.cyan("/search")}    switch to a different project folder`);
-  log.info(`  ${pc.cyan("/connect")}   set up or re-authenticate a provider`);
-  log.info(`  ${pc.cyan("/help")}      show this list`);
-  log.info(`  ${pc.cyan("/exit")}      end the session`);
+  log.info(`  ${pc.cyan("/plan <task>")}   preview what would be sent, without sending`);
+  log.info(`  ${pc.cyan("/switch")}        change coding agent (Claude Code / Cursor / ChatGPT / API)`);
+  log.info(`  ${pc.cyan("/search")}        switch to a different project folder`);
+  log.info(`  ${pc.cyan("/connect")}       set up or re-authenticate a provider`);
+  log.info(`  ${pc.cyan("/help")}          show this list`);
+  log.info(`  ${pc.cyan("/exit")}          end the session`);
   log.info(pc.dim("  Anything else is treated as a task to run."));
 }
 
