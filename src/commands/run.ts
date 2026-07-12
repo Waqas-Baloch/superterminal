@@ -13,6 +13,8 @@ import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session
 import { renderBox, darkGreen } from "../report/box";
 import { renderHeader } from "../report/banner";
 import { VERSION } from "../version";
+import { switchCommand } from "./switch";
+import { connectCommand } from "./connect";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
 import {
@@ -97,23 +99,51 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   log.info(await renderHeader(VERSION));
-  log.dim("  Type a task and press enter. /exit (or Ctrl-C) to quit.");
+  log.dim("  Type a task and press enter. Commands: /switch  /connect  /help  /exit");
   log.info("");
 
-  let task = taskArg ?? (await promptNextTask(true));
+  let input = taskArg ?? (await promptNextTask(true));
   let count = 0;
-  while (task) {
-    count++;
-    try {
-      await executeTask(task, ctx);
-    } catch (err) {
-      log.error(err instanceof Error ? err.message : String(err));
+  while (input) {
+    const command = parseSessionCommand(input);
+    if (command === "switch" || command === "connect") {
+      command === "switch" ? await switchCommand() : await connectCommand();
+      const refreshed = await resolveAuth(); // pick up the newly chosen agent
+      if (refreshed) ctx.auth = refreshed;
+    } else if (command === "help") {
+      printSessionHelp();
+    } else {
+      count++;
+      try {
+        await executeTask(input, ctx);
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+      }
     }
     log.info("");
     log.info(pc.dim("─".repeat(68)));
-    task = await promptNextTask(false);
+    input = await promptNextTask(false);
   }
   log.info(pc.dim(`Session closed — ${count} task(s) run.`));
+}
+
+/** Recognize in-session commands so "/switch" or "glint switch" don't get run as a task. */
+function parseSessionCommand(input: string): "switch" | "connect" | "help" | null {
+  const t = input.trim().toLowerCase().replace(/^glint\s+/, "").replace(/^\//, "");
+  if (t === "switch") return "switch";
+  if (t === "connect") return "connect";
+  if (t === "help" || t === "?" || t === "commands") return "help";
+  return null;
+}
+
+function printSessionHelp(): void {
+  log.info("");
+  log.info(pc.bold("In-session commands:"));
+  log.info(`  ${pc.cyan("/switch")}    change coding agent (Claude Code / Cursor / ChatGPT / API)`);
+  log.info(`  ${pc.cyan("/connect")}   set up or re-authenticate a provider`);
+  log.info(`  ${pc.cyan("/help")}      show this list`);
+  log.info(`  ${pc.cyan("/exit")}      end the session`);
+  log.info(pc.dim("  Anything else is treated as a task to run."));
 }
 
 async function promptNextTask(first: boolean): Promise<string | undefined> {
