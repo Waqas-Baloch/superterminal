@@ -49,8 +49,11 @@ const MAX_FREE_TEXT_ROUNDS = 5;
  */
 export async function buildQuestions(task: string, selection: Selection, root: string): Promise<ClarifyQuestion[]> {
   const questions: ClarifyQuestion[] = [];
+  // primary + supporting are both sent as full content — either could hold
+  // the ambiguous element, so both are fair game for clarification questions.
+  const fullFiles = [...selection.primary, ...selection.supporting];
   const contents = new Map<string, string>();
-  for (const f of selection.primary) {
+  for (const f of fullFiles) {
     contents.set(f.path, await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => ""));
   }
 
@@ -87,15 +90,15 @@ export async function buildQuestions(task: string, selection: Selection, root: s
   }
 
   // 2. File scope: several files selected but the task names none of them
-  if (selection.primary.length >= 2) {
+  if (fullFiles.length >= 2) {
     const taskLower = task.toLowerCase();
-    const namesAFile = selection.primary.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
+    const namesAFile = fullFiles.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
     if (!namesAFile) {
       questions.push({
         key: "file_scope",
         message: "Which file(s) should actually be changed?",
         choices: [
-          ...selection.primary.map((f) => ({ title: f.path, value: f.path })),
+          ...fullFiles.map((f) => ({ title: f.path, value: f.path })),
           { title: "Wherever needed — let Claude decide", value: "__any__" },
         ],
         refine: (answer) => {

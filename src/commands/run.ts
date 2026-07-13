@@ -271,7 +271,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     spinner.stop();
     repoTokens = estimateTokens(index.files.reduce((sum, f) => sum + f.size, 0));
 
-    if (selection.primary.length === 0) {
+    if (selection.primary.length + selection.supporting.length + selection.optional.length === 0) {
       if (repoTokens <= budget * 0.5) {
         selection = fullSelection(task, index, budget); // tiny project — send it all
       } else {

@@ -36,11 +36,10 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
 
   spinner.text = "Selecting files…";
   const selection = await selectFiles({ task, root, index, graph, budget });
-  spinner.succeed(
-    `Indexed ${index.files.length} files, selected ${selection.primary.length + selection.secondary.length}`,
-  );
+  const selectedCount = selection.primary.length + selection.supporting.length + selection.optional.length;
+  spinner.succeed(`Indexed ${index.files.length} files, selected ${selectedCount}`);
 
-  if (selection.primary.length === 0) {
+  if (selectedCount === 0) {
     log.warn("Nothing matched the task terms — try more specific words (component, page, or feature names).");
     return;
   }

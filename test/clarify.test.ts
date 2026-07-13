@@ -11,9 +11,13 @@ function makeSelection(paths: string[], task: string): Selection {
   return {
     task,
     primary: paths.map((p) => ({ path: p, score: 1, tokens: 100, reasons: ["matched"] })),
-    secondary: [],
+    supporting: [],
+    optional: [],
     totalTokens: 100,
     budget: 30_000,
+    taskType: "ui",
+    taskConfidence: 0.8,
+    anchors: [],
   };
 }
 

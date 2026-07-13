@@ -11,6 +11,7 @@ export interface IndexedFile {
   lines: number;
   hash: string;
   ext: string;
+  mtimeMs: number; // last-modified time — proxy for recency ranking signal
 }
 
 export interface RepoIndex {
@@ -73,6 +74,7 @@ export async function indexRepo(root: string, config: GlintConfig): Promise<Repo
       lines: countLines(content),
       hash: createHash("sha1").update(content).digest("hex"),
       ext: path.extname(rel),
+      mtimeMs: stat.mtimeMs,
     });
   }
 

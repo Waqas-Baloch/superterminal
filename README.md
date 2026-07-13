@@ -99,9 +99,9 @@ If your chosen agent CLI (Claude Code / Cursor / Codex) isn't installed, `glint 
 ## How it works
 
 1. **Index** — scans the repo (respects `.gitignore`, skips lockfiles/binaries)
-2. **Map** — builds an import graph + exported symbols via ts-morph (resolves `@/` aliases)
-3. **Select** — BM25 relevance over paths/symbols/content + 1-hop graph expansion + schema boosts, greedily filled under the token budget
-4. **Manifest** — one dense Markdown doc: project facts, full text for primary files, signatures for secondary files
+2. **Map** — builds an import graph + exported symbols via ts-morph (resolves `@/` aliases), plus JSX/HTML/CSS property-level anchors (prop values, ids, classes)
+3. **Rank** — the [Context Ranking Specification](docs/ranking-spec.md): classifies the task (ui/copy/logic/style/data/api/config/test/infra), seeds anchor units, expands outward through the dependency graph with distance decay, scores every candidate on 9 weighted signals (hierarchy, semantic match, dependency, ownership, proximity, recency, verification, confidence, noise), then packs primary/supporting/optional tiers under the token budget
+4. **Manifest** — one dense Markdown doc: project facts, task-type + anchors, full text for primary/supporting, signatures for optional
 5. **Edit loop** — Claude works through 4 narrow tools (`read_file`, `list_files`, `str_replace`, `write_file`). No shell, no network. Edits are staged, originals backed up to `.glint/backup/`, then applied
 6. **Validate** — runs `tsc --noEmit`, `eslint`, and `npm test` (each only if the repo has it configured); failures are fed back to Claude for up to 2 repair rounds
 7. **Report** — colored unified diff, touched-file summary, token usage + cost

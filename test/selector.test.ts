@@ -47,24 +47,21 @@ afterAll(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+function allFiles(s: Selection) {
+  return [...s.primary, ...s.supporting, ...s.optional].map((f) => f.path);
+}
+
 describe("selectFiles", () => {
   it("ranks the task-relevant page first", () => {
     expect(selection.primary[0].path).toBe("app/cart/page.tsx");
   });
 
   it("pulls in imported components via the graph", () => {
-    const paths = [...selection.primary, ...selection.secondary].map((f) => f.path);
-    expect(paths).toContain("components/Button.tsx");
-  });
-
-  it("includes the database schema via boost", () => {
-    const paths = [...selection.primary, ...selection.secondary].map((f) => f.path);
-    expect(paths).toContain("schema.prisma");
+    expect(allFiles(selection)).toContain("components/Button.tsx");
   });
 
   it("excludes irrelevant files", () => {
-    const paths = [...selection.primary, ...selection.secondary].map((f) => f.path);
-    expect(paths).not.toContain("lib/weather.ts");
+    expect(allFiles(selection)).not.toContain("lib/weather.ts");
   });
 
   it("stays within the token budget", () => {
@@ -87,9 +84,12 @@ describe("selectFiles", () => {
       budget: 30_000,
       seeds: [{ path: "lib/weather.ts", score: 0.65, reason: "follow-up: edited in previous task" }],
     });
-    const paths = seeded.primary.map((f) => f.path);
-    expect(paths).toContain("lib/weather.ts"); // excluded without the seed
-    const weather = seeded.primary.find((f) => f.path === "lib/weather.ts")!;
+    // Seeded files are carried-over context, not the current task's anchor —
+    // they land in primary or supporting (both full-content tiers), not
+    // necessarily primary specifically.
+    const fullContent = [...seeded.primary, ...seeded.supporting];
+    expect(fullContent.map((f) => f.path)).toContain("lib/weather.ts"); // excluded without the seed
+    const weather = fullContent.find((f) => f.path === "lib/weather.ts")!;
     expect(weather.reasons[0]).toContain("previous task");
   });
 });

@@ -24,9 +24,13 @@ beforeAll(async () => {
   const selection: Selection = {
     task: "add checkout form",
     primary: [{ path: "src/cart.tsx", score: 1, tokens: 20, reasons: ["matched: cart"] }],
-    secondary: [{ path: "src/orders.ts", score: 0.4, tokens: 30, reasons: ["linked"] }],
+    supporting: [],
+    optional: [{ path: "src/orders.ts", score: 0.4, tokens: 30, reasons: ["linked"] }],
     totalTokens: 50,
     budget: 30_000,
+    taskType: "ui",
+    taskConfidence: 0.8,
+    anchors: [],
   };
   manifest = await generateManifest({ root: dir, task: "add checkout form", selection });
 });
@@ -47,7 +51,7 @@ describe("generateManifest", () => {
     expect(manifest).toContain("export function Cart() { return <div>cart</div>; }");
   });
 
-  it("includes signatures, not bodies, for secondary files", () => {
+  it("includes signatures, not bodies, for optional-tier files", () => {
     expect(manifest).toContain("### src/orders.ts");
     expect(manifest).toContain("export interface Order { id: string; total: number }");
     expect(manifest).toContain("export async function createOrder(o: Order): Promise<void>");

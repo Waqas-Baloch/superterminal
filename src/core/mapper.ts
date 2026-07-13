@@ -8,8 +8,9 @@ export interface FileNode {
   path: string;
   imports: string[]; // resolved repo-relative paths
   importedBy: string[]; // reverse edges
-  exports: string[]; // exported symbol names
+  exports: string[]; // exported symbol names (code files) or DOM ids/classes/headings (markup files)
   externals: string[]; // npm packages imported
+  stringLiterals: string[]; // quoted strings / JSX attribute values — property-unit anchors in code files
 }
 
 export interface RepoGraph {
@@ -27,7 +28,7 @@ const DOM_EXTS = new Set([".html", ".htm", ".css", ".scss"]);
 export async function buildGraph(root: string, index: RepoIndex): Promise<RepoGraph> {
   const nodes = new Map<string, FileNode>();
   for (const f of index.files) {
-    nodes.set(f.path, { path: f.path, imports: [], importedBy: [], exports: [], externals: [] });
+    nodes.set(f.path, { path: f.path, imports: [], importedBy: [], exports: [], externals: [], stringLiterals: [] });
   }
   const fileSet = new Set(nodes.keys());
   const aliases = loadAliases(root);
@@ -88,6 +89,15 @@ export async function buildGraph(root: string, index: RepoIndex): Promise<RepoGr
     nodes.get(f.path)!.exports = extractDomSymbols(content, f.ext);
   }
 
+  // Code files (TS/TSX/JS/JSX) carry Property-unit anchors too — JSX prop
+  // values and quoted strings like label="Checkout" — not just exported
+  // symbols. React/Next.js apps very often name the thing a task refers to
+  // ("the checkout button") only as inline JSX text, never as its own symbol.
+  for (const rel of sourcePaths) {
+    const content = await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "");
+    nodes.get(rel)!.stringLiterals = extractStringLiterals(content);
+  }
+
   for (const node of nodes.values()) {
     for (const imp of node.imports) nodes.get(imp)?.importedBy.push(node.path);
   }
@@ -110,6 +120,24 @@ function extractDomSymbols(content: string, ext: string): string[] {
     for (const m of content.matchAll(/[.#]([a-zA-Z][\w-]*)/g)) out.add(m[1]);
   }
   return [...out].slice(0, 200);
+}
+
+// Deliberately narrow: only identifier="value" / identifier={"value"} style
+// attribute assignments (JSX props, HTML-in-JS attrs) — NOT bare quoted
+// strings anywhere in the file. A bare-string scan would match array/object
+// literal data (e.g. a keyword list like ["margin", "padding", ...]) as if it
+// were UI-facing text, which is a false positive, not a real Property anchor.
+const ATTR_VALUE_RE = /\b[a-zA-Z][\w-]*=\{?["']([A-Za-z][\w '.,!?-]{1,39})["']\}?/g;
+const MAX_STRING_LITERALS = 200;
+
+function extractStringLiterals(content: string): string[] {
+  const out = new Set<string>();
+  for (const m of content.matchAll(ATTR_VALUE_RE)) {
+    const s = m[1].trim();
+    if (s.length > 1) out.add(s);
+    if (out.size >= MAX_STRING_LITERALS) break;
+  }
+  return [...out];
 }
 
 export function loadAliases(root: string): Alias[] {

@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import { Project } from "ts-morph";
 import { loadAliases } from "./mapper";
-import { expandTask } from "./selector";
+import { expandTask } from "./terms";
 import { focusContent, type FocusResult } from "./focus";
 import { estimateTokens } from "../util/tokens";
 import type { Selection } from "./selector";
@@ -47,14 +47,18 @@ export async function generateManifest(opts: {
   if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
   parts.push(await projectFacts(root));
 
+  // Primary (anchor units) + Supporting (owner/deps/consumers) both get full
+  // content — the ranking spec's "smallest COMPLETE set" means a dependency
+  // needed to safely make the edit shouldn't be reduced to just a signature.
+  const fullFiles = [...selection.primary, ...selection.supporting];
   const tree = [
-    ...selection.primary.map((f) => `${f.path}  (full)`),
-    ...selection.secondary.map((f) => `${f.path}  (signatures)`),
+    ...fullFiles.map((f) => `${f.path}  (full)`),
+    ...selection.optional.map((f) => `${f.path}  (signatures)`),
   ];
   parts.push(`## Selected files\n${tree.join("\n")}`);
 
   const fullChunks: string[] = [];
-  for (const f of selection.primary) {
+  for (const f of fullFiles) {
     const content = await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => "");
     const lang = LANG[nodePath.extname(f.path)] ?? "";
     const focused = focusOn && estimateTokens(content) > FOCUS_MIN_TOKENS ? focusContent(content, terms) : null;
@@ -67,14 +71,14 @@ export async function generateManifest(opts: {
   }
   parts.push(`## Files (full content or task-relevant excerpts)\n${fullChunks.join("\n\n")}`);
 
-  if (selection.secondary.length > 0) {
+  if (selection.optional.length > 0) {
     const project = new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
       compilerOptions: { allowJs: true },
     });
     const sigChunks: string[] = [];
-    for (const f of selection.secondary) {
+    for (const f of selection.optional) {
       sigChunks.push(`### ${f.path}\n${await signaturesFor(project, root, f.path)}`);
     }
     parts.push(`## Files (signatures only — use read_file for full content)\n${sigChunks.join("\n\n")}`);

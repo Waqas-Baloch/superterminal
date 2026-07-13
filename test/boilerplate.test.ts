@@ -92,9 +92,13 @@ describe("manifest excerpting", () => {
       selection: {
         task: "add a buy button to the pricing section on the home page",
         primary: [{ path: "index.html", score: 1, tokens: 900, reasons: ["matched"] }],
-        secondary: [],
+        supporting: [],
+        optional: [],
         totalTokens: 900,
         budget: 30_000,
+        taskType: "ui",
+        taskConfidence: 0.8,
+        anchors: [],
       },
     });
 

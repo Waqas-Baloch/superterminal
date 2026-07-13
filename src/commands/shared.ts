@@ -28,17 +28,25 @@ function langOf(path: string): string {
 export function printSelection(selection: Selection): void {
   log.info("");
   log.info(`Task: ${pc.bold(selection.task)}`);
+  const confidencePct = Math.round(selection.taskConfidence * 100);
+  log.dim(
+    `Detected: ${selection.taskType} task (${confidencePct}% confidence)` +
+      (selection.anchors.length > 0
+        ? ` · anchors: ${selection.anchors.map((a) => a.path.split("/").pop()).join(", ")}`
+        : ""),
+  );
   log.info("");
 
-  type Entry = { file: SelectedFile; tier: "full content" | "signatures only" };
+  type Entry = { file: SelectedFile; tier: "primary" | "supporting" | "signatures only" };
   const groups = new Map<string, Entry[]>();
   const add = (file: SelectedFile, tier: Entry["tier"]) => {
     const lang = langOf(file.path);
     if (!groups.has(lang)) groups.set(lang, []);
     groups.get(lang)!.push({ file, tier });
   };
-  for (const f of selection.primary) add(f, "full content");
-  for (const f of selection.secondary) add(f, "signatures only");
+  for (const f of selection.primary) add(f, "primary");
+  for (const f of selection.supporting) add(f, "supporting");
+  for (const f of selection.optional) add(f, "signatures only");
 
   for (const [lang, entries] of groups) {
     const rows: BoxRow[] = [];
