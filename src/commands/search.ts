@@ -5,6 +5,7 @@ import ora from "ora";
 import pc from "picocolors";
 import prompts from "prompts";
 import { log } from "../util/logger";
+import { runCommand } from "./run";
 
 const HOME_DIRS = ["Desktop", "Documents", "Projects", "projects", "code", "Code", "dev", "src", "repos", "workspace", "work", "git", "sites"];
 const SKIP_DIRS = new Set(["node_modules", ".git", "Library", ".Trash", ".cache", ".npm", "dist", "build", ".next"]);
@@ -138,6 +139,5 @@ export async function searchCommand(query?: string): Promise<void> {
   process.chdir(root);
   log.success(`Working in ${pc.bold(homeRelative(root))}`);
   log.info("");
-  const { runCommand } = await import("./run"); // late import avoids a require cycle
   await runCommand(undefined, {});
 }
