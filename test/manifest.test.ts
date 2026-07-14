@@ -46,6 +46,12 @@ describe("generateManifest", () => {
     expect(manifest).toContain("demo-app");
   });
 
+  it("includes literal-intent guidance so 'remove' means delete, not rewrite", () => {
+    expect(manifest).toContain("## How to apply this task");
+    expect(manifest.toLowerCase()).toContain("remove");
+    expect(manifest.toLowerCase()).toContain("entirely");
+  });
+
   it("includes full content for primary files", () => {
     expect(manifest).toContain("### src/cart.tsx");
     expect(manifest).toContain("export function Cart() { return <div>cart</div>; }");

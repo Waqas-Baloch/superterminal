@@ -30,6 +30,18 @@ const TS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const MAX_SIGNATURES_PER_FILE = 30;
 const FOCUS_MIN_TOKENS = 250; // below this, excerpting adds overhead instead of saving
 
+// Honor the task's wording literally. Agents (especially subscription CLIs
+// with a strong "be helpful / match surrounding style" bias) tend to soften
+// destructive verbs — e.g. rewriting a button's text to match its siblings
+// when the user said "remove". This framing reaches every provider because
+// it lives in the manifest, not in Glint's API-only system prompt.
+const APPLY_GUIDANCE = `## How to apply this task
+Do exactly what the task asks — no more, no less — and follow its wording literally:
+- "remove" / "delete" / "get rid of" means take that element or code out **entirely** — do not replace its text, rename it, or rewrite it into something else.
+- "rename" / "change the text" / "reword" means edit only that text, not restructure the element.
+- Do not add, restyle, rename, or "improve" anything the task did not explicitly ask for, even if a nearby pattern looks inconsistent.
+Make the smallest change that *fully and literally* satisfies the request.`;
+
 export async function generateManifest(opts: {
   root: string;
   task: string;
@@ -44,6 +56,7 @@ export async function generateManifest(opts: {
 
   parts.push("# Repo context manifest");
   parts.push(`## Task\n${task}`);
+  parts.push(APPLY_GUIDANCE);
   if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
   parts.push(await projectFacts(root));
 

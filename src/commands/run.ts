@@ -503,7 +503,11 @@ async function runViaAgentCli(
   log.info("");
   log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
   try {
-    await runAgent(agent, root, `${manifest}\n\nImplement the task now with the smallest correct change set.`);
+    await runAgent(
+      agent,
+      root,
+      `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.`,
+    );
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
