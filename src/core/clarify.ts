@@ -39,8 +39,20 @@ const TAG_ALIASES: Record<string, string[]> = {
 
 const UI_FILE = /\.(html?|jsx|tsx)$/;
 const STYLE_FILE = /\.(css|scss)$/;
-const MAX_ELEMENT_QUESTIONS = 3;
-const MAX_FREE_TEXT_ROUNDS = 5;
+const MAX_ELEMENT_QUESTIONS = 2;
+
+/**
+ * The ranking system exists to decide, not defer. Only clarify when it's
+ * genuinely uncertain about the target: no dominant anchor, or the top few
+ * anchors are near-tied (the ranking couldn't single out an edit target).
+ * A clearly dominant anchor + a focused primary tier means "trust it."
+ */
+export function rankingIsConfident(selection: Selection): boolean {
+  const [top, second] = selection.anchors;
+  if (!top) return false;
+  const dominant = top.score >= 0.4 && (!second || top.score - second.score >= 0.12 || top.score >= 0.7);
+  return dominant && selection.primary.length <= 2;
+}
 
 /**
  * Detect what the task leaves ambiguous, given what was actually selected.
@@ -89,17 +101,19 @@ export async function buildQuestions(task: string, selection: Selection, root: s
     if (questions.length >= MAX_ELEMENT_QUESTIONS) break;
   }
 
-  // 2. File scope: several files selected but the task names none of them
-  if (fullFiles.length >= 2) {
+  // 2. File scope: several primary (edit-target) files, task names none of
+  // them, and the ranking couldn't pick a clear winner. Supporting files are
+  // context, not edit targets, so they don't drive this question.
+  if (selection.primary.length >= 3) {
     const taskLower = task.toLowerCase();
-    const namesAFile = fullFiles.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
+    const namesAFile = selection.primary.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
     if (!namesAFile) {
       questions.push({
         key: "file_scope",
         message: "Which file(s) should actually be changed?",
         choices: [
-          ...fullFiles.map((f) => ({ title: f.path, value: f.path })),
-          { title: "Wherever needed — let Claude decide", value: "__any__" },
+          ...selection.primary.map((f) => ({ title: f.path, value: f.path })),
+          { title: "Wherever needed — let the agent decide", value: "__any__" },
         ],
         refine: (answer) => {
           if (!answer || answer.length === 0 || answer.includes("__any__")) return null;
@@ -118,14 +132,17 @@ export async function buildQuestions(task: string, selection: Selection, root: s
  * answers stop gracefully.
  */
 export async function askClarifications(task: string, selection: Selection, root: string): Promise<string[]> {
-  const questions = await buildQuestions(task, selection, root);
   const refinements: string[] = [];
 
-  // Prompt is already well-written — nothing ambiguous, don't interrupt.
-  if (questions.length === 0) return refinements;
+  // Trust the ranking when it's confident about the target — the whole point
+  // of the ranking system is to decide quickly, not interrogate.
+  if (rankingIsConfident(selection)) return refinements;
+
+  const questions = await buildQuestions(task, selection, root);
+  if (questions.length === 0) return refinements; // ranking uncertain but nothing concrete to ask
 
   log.info("");
-  log.info(pc.bold("A few questions to pin the task down") + pc.dim(" (space = select, enter = confirm)"));
+  log.dim("The ranking wasn't sure which target you meant — one quick check (space = select, enter = confirm):");
 
   for (const q of questions) {
     const answer = await prompts({
@@ -142,20 +159,8 @@ export async function askClarifications(task: string, selection: Selection, root
       log.dim(`  ✓ noted`);
     }
   }
-
-  for (let round = 0; round < MAX_FREE_TEXT_ROUNDS; round++) {
-    const { extra } = await prompts({
-      type: "text",
-      name: "extra",
-      message:
-        round === 0
-          ? "Anything else to pin down? (Enter to skip)"
-          : "Anything else? (Enter to finish)",
-    });
-    if (extra === undefined || !String(extra).trim()) break;
-    refinements.push(String(extra).trim());
-    log.dim(`  ✓ noted`);
-  }
+  // No open-ended "anything else?" rounds — the confirm step's "Edit manifest"
+  // covers adding context, so decisions stay quick.
 
   return refinements;
 }

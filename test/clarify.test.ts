@@ -2,8 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { buildQuestions, compileTask } from "../src/core/clarify";
+import { buildQuestions, compileTask, rankingIsConfident } from "../src/core/clarify";
 import type { Selection } from "../src/core/selector";
+import type { Anchor } from "../src/core/ranking/types";
 
 let dir: string;
 
@@ -34,6 +35,7 @@ beforeAll(async () => {
     ].join("\n"),
   );
   await fs.writeFile(path.join(dir, "styles.css"), ".subscribe { color: white; }\n.buy { color: black; }\n");
+  await fs.writeFile(path.join(dir, "theme.css"), ":root { --primary: #333; }\n");
   await fs.writeFile(path.join(dir, "single.html"), '<body><button class="only">Only one</button></body>');
 });
 
@@ -78,13 +80,17 @@ describe("buildQuestions", () => {
     expect(questions.find((q) => q.key === "target_button")).toBeUndefined();
   });
 
-  it("asks about file scope only when the task names no file", async () => {
-    const vague = "make the subscribe button black";
-    const withFiles = await buildQuestions(vague, makeSelection(["index.html", "styles.css"], vague), dir);
+  it("asks about file scope only when several files are targeted and the task names none", async () => {
+    const vague = "make the primary color darker";
+    const withFiles = await buildQuestions(vague, makeSelection(["index.html", "styles.css", "theme.css"], vague), dir);
     expect(withFiles.find((q) => q.key === "file_scope")).toBeDefined();
 
-    const named = "make the subscribe button black in index.html";
-    const withNamed = await buildQuestions(named, makeSelection(["index.html", "styles.css"], named), dir);
+    // Only 2 targets — the ranking ordered them; don't ask.
+    const few = await buildQuestions(vague, makeSelection(["index.html", "styles.css"], vague), dir);
+    expect(few.find((q) => q.key === "file_scope")).toBeUndefined();
+
+    const named = "make the primary color darker in index.html";
+    const withNamed = await buildQuestions(named, makeSelection(["index.html", "styles.css", "theme.css"], named), dir);
     expect(withNamed.find((q) => q.key === "file_scope")).toBeUndefined();
   });
 
@@ -99,6 +105,31 @@ describe("buildQuestions", () => {
 
     expect(q.refine(["__all__"])).toContain("every button");
     expect(q.refine([])).toBeNull();
+  });
+});
+
+describe("rankingIsConfident — the gate that keeps Glint from over-asking", () => {
+  function withAnchors(anchors: Anchor[], primaryCount: number): Selection {
+    const sel = makeSelection(Array.from({ length: primaryCount }, (_, i) => `f${i}.tsx`), "task");
+    sel.anchors = anchors;
+    return sel;
+  }
+
+  it("trusts a clearly dominant anchor and does not ask", () => {
+    expect(rankingIsConfident(withAnchors([{ path: "a.tsx", score: 0.8 }], 1))).toBe(true);
+    expect(rankingIsConfident(withAnchors([{ path: "a.tsx", score: 0.5 }, { path: "b.tsx", score: 0.2 }], 2))).toBe(true);
+  });
+
+  it("asks when the top anchors are near-tied (no clear target)", () => {
+    expect(rankingIsConfident(withAnchors([{ path: "a.tsx", score: 0.45 }, { path: "b.tsx", score: 0.42 }], 2))).toBe(false);
+  });
+
+  it("asks when there is no anchor at all", () => {
+    expect(rankingIsConfident(withAnchors([], 2))).toBe(false);
+  });
+
+  it("asks when many files are edit targets even if one anchor leads", () => {
+    expect(rankingIsConfident(withAnchors([{ path: "a.tsx", score: 0.8 }], 5))).toBe(false);
   });
 });
 
