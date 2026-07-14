@@ -37,6 +37,19 @@ beforeAll(async () => {
   await fs.writeFile(path.join(dir, "styles.css"), ".subscribe { color: white; }\n.buy { color: black; }\n");
   await fs.writeFile(path.join(dir, "theme.css"), ":root { --primary: #333; }\n");
   await fs.writeFile(path.join(dir, "single.html"), '<body><button class="only">Only one</button></body>');
+
+  // Two buttons with identical copy in different landmarks — the exact case
+  // where "remove This Testing" would otherwise nuke both.
+  await fs.writeFile(
+    path.join(dir, "dupes.html"),
+    [
+      "<body>",
+      '  <nav><button class="cta">This Testing</button></nav>',
+      "  <main><p>Some real content here</p></main>",
+      '  <footer><button class="cta">This Testing</button></footer>',
+      "</body>",
+    ].join("\n"),
+  );
 });
 
 afterAll(async () => {
@@ -105,6 +118,60 @@ describe("buildQuestions", () => {
 
     expect(q.refine(["__all__"])).toContain("every button");
     expect(q.refine([])).toBeNull();
+  });
+});
+
+describe("duplicate-target detection — the same copy in several places", () => {
+  it("asks which occurrence when a quoted target appears more than once", async () => {
+    const task = 'remove the "This Testing" button';
+    const questions = await buildQuestions(task, makeSelection(["dupes.html"], task), dir);
+    const q = questions.find((q) => q.key === "target_location");
+
+    expect(q).toBeDefined();
+    expect(q!.choices.length).toBe(3); // two occurrences + "All of them"
+    // The two occurrences are distinguishable by their enclosing landmark.
+    const titles = q!.choices.map((c) => c.title).join("\n");
+    expect(titles).toContain("nav");
+    expect(titles).toContain("footer");
+    expect(q!.choices.at(-1)!.value).toBe("__all__");
+  });
+
+  it("fires without quotes or a tag word, when the task names the copy", async () => {
+    const task = "remove This Testing";
+    const questions = await buildQuestions(task, makeSelection(["dupes.html"], task), dir);
+    expect(questions.find((q) => q.key === "target_location")).toBeDefined();
+    // The generic tag-word question must NOT also fire — the copy question wins.
+    expect(questions.find((q) => q.key === "target_button")).toBeUndefined();
+  });
+
+  it("fires even when the file is a confident single anchor (file-confidence ≠ target-confidence)", async () => {
+    const task = 'remove "This Testing"';
+    const sel = makeSelection(["dupes.html"], task);
+    sel.anchors = [{ path: "dupes.html", score: 0.9 }]; // dominant → file is certain
+    expect(rankingIsConfident(sel)).toBe(true);
+    const questions = await buildQuestions(task, sel, dir);
+    expect(questions.find((q) => q.key === "target_location")).toBeDefined();
+  });
+
+  it("compiles a location-scoped constraint, or an all-occurrences one", async () => {
+    const task = "remove This Testing";
+    const q = (await buildQuestions(task, makeSelection(["dupes.html"], task), dir)).find(
+      (q) => q.key === "target_location",
+    )!;
+    const navValue = q.choices.find((c) => c.title.includes("nav"))!.value;
+
+    const scoped = q.refine([navValue]);
+    expect(scoped).toContain(navValue);
+    expect(scoped).toContain("Leave every other occurrence");
+
+    expect(q.refine(["__all__"])).toContain("all 2 occurrences");
+    expect(q.refine([])).toBeNull();
+  });
+
+  it("stays silent when each element's copy is unique", async () => {
+    const task = "change the button in index.html to black";
+    const questions = await buildQuestions(task, makeSelection(["index.html"], task), dir);
+    expect(questions.find((q) => q.key === "target_location")).toBeUndefined();
   });
 });
 
