@@ -1,15 +1,38 @@
-import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import prompts from "prompts";
-import pc from "picocolors";
 import { STOPWORDS, type Selection } from "./selector";
 import { log } from "../util/logger";
+import {
+  buildIntentFrame,
+  classifyBand,
+  detectAmbiguity,
+  rankingIsConfident,
+  readSelectionContents,
+  sectionSummary,
+  STYLE_FILE,
+  UI_FILE,
+  type AmbiguityReport,
+  type Band,
+  type DuplicateFinding,
+  type IntentFrame,
+} from "./understanding";
+
+// Re-exported so existing importers (and tests) keep their entry point.
+export { rankingIsConfident };
 
 export interface ClarifyQuestion {
   key: string;
   message: string;
   choices: { title: string; value: string }[];
   refine: (answer: string[]) => string | null;
+}
+
+export interface TaskAssessment {
+  band: Band;
+  reason: string;
+  frame: IntentFrame;
+  questions: ClarifyQuestion[]; // focused clarifications — empty for Green/Yellow
+  styleNote: string | null; // Yellow: style-continuation guidance to compile in
 }
 
 interface Candidate {
@@ -37,68 +60,55 @@ const TAG_ALIASES: Record<string, string[]> = {
   list: ["ul", "ol"],
 };
 
-const UI_FILE = /\.(html?|jsx|tsx)$/;
-const STYLE_FILE = /\.(css|scss)$/;
 const MAX_ELEMENT_QUESTIONS = 2;
 
 /**
- * The ranking system exists to decide, not defer. Only clarify when it's
- * genuinely uncertain about the target: no dominant anchor, or the top few
- * anchors are near-tied (the ranking couldn't single out an edit target).
- * A clearly dominant anchor + a focused primary tier means "trust it."
+ * Full assessment of a task against what was selected: the intent frame, the
+ * decision band, the focused questions to ask (if any), and — for Yellow — a
+ * style-continuation note. This is the entry point the run flow uses to decide
+ * whether to auto-execute, infer style, ask, or block.
  */
-export function rankingIsConfident(selection: Selection): boolean {
-  const [top, second] = selection.anchors;
-  if (!top) return false;
-  const dominant = top.score >= 0.4 && (!second || top.score - second.score >= 0.12 || top.score >= 0.7);
-  return dominant && selection.primary.length <= 2;
+export async function assessTask(task: string, selection: Selection, root: string): Promise<TaskAssessment> {
+  const contents = await readSelectionContents(selection, root);
+  const frame = buildIntentFrame(task);
+  const ambiguity = detectAmbiguity(task, frame, contents);
+  const { band, reason } = classifyBand(frame, selection, ambiguity);
+  const questions = composeQuestions(frame, ambiguity, selection, task, contents);
+  const styleNote = band === "yellow" ? styleContinuationNote() : null;
+  return { band, reason, frame, questions, styleNote };
 }
 
 /**
- * Detect what the task leaves ambiguous, given what was actually selected.
- * Pure + offline: candidates come from scanning the selected files, so every
- * option shown to the user is a real element in their code.
+ * The clarifying questions for a task, given what was selected. Kept as a
+ * stable entry point (used directly by tests): it reflects exactly what
+ * assessTask would ask.
  */
 export async function buildQuestions(task: string, selection: Selection, root: string): Promise<ClarifyQuestion[]> {
-  const questions: ClarifyQuestion[] = [];
-  // primary + supporting are both sent as full content — either could hold
-  // the ambiguous element, so both are fair game for clarification questions.
-  const fullFiles = [...selection.primary, ...selection.supporting];
-  const contents = new Map<string, string>();
-  for (const f of fullFiles) {
-    contents.set(f.path, await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => ""));
-  }
+  const contents = await readSelectionContents(selection, root);
+  const frame = buildIntentFrame(task);
+  const ambiguity = detectAmbiguity(task, frame, contents);
+  return composeQuestions(frame, ambiguity, selection, task, contents);
+}
 
-  // 1. Duplicate visible target: the same copy — the exact thing the user
-  // named, e.g. `remove "This Testing"` — appears in several places (a button
-  // in the nav AND one in the footer). This is keyed on the *content* the task
-  // references, not a tag word, so it fires even when the task never says
-  // "button". It runs regardless of file-confidence: the file can be certain
-  // while *which occurrence* is not. When it fires it is the most precise
-  // question we can ask, so it supersedes the tag-word heuristic below.
-  const dup = collectDuplicateTargets(task, contents);
-  if (dup) {
-    questions.push({
-      key: "target_location",
-      message: `"${dup.phrase}" appears in ${dup.locations.length} places — which should I change?`,
-      choices: [
-        ...dup.locations.map((l) => ({ title: l.label, value: l.value })),
-        { title: "All of them", value: "__all__" },
-      ],
-      refine: (answer) => {
-        if (!answer || answer.length === 0) return null;
-        if (answer.includes("__all__")) {
-          return `Apply the change to all ${dup.locations.length} occurrences of "${dup.phrase}".`;
-        }
-        const picked = answer.filter((a) => a !== "__all__");
-        if (picked.length === 0) return null;
-        return `Apply the change ONLY at ${picked.join(" and ")} (the "${dup.phrase}" there). Leave every other occurrence of "${dup.phrase}" unchanged.`;
-      },
-    });
+function composeQuestions(
+  frame: IntentFrame,
+  ambiguity: AmbiguityReport,
+  selection: Selection,
+  task: string,
+  contents: Map<string, string>,
+): ClarifyQuestion[] {
+  const questions: ClarifyQuestion[] = [];
+
+  // 1. Duplicate visible target: the exact copy the user named appears in
+  // several places (a button in the nav AND one in the footer). This is the
+  // most precise question we can ask, so it supersedes the tag-word heuristic.
+  // It fires regardless of file-confidence — the file can be certain while
+  // *which occurrence* is not.
+  if (ambiguity.duplicate) {
+    questions.push(duplicateQuestion(frame, ambiguity.duplicate));
   } else {
-    // 1b. Element ambiguity: "the button" when there are several buttons.
-    // Case-dependent: if the task's own words already single out one candidate
-    // ("the BUY button"), the prompt is specific enough — no question.
+    // 1b. Element ambiguity: "the button" when there are several buttons. If
+    // the task's own words single out one ("the BUY button"), stay silent.
     const words = [...new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))];
     const discriminators = words.filter((w) => w.length >= 3 && !STOPWORDS.has(w) && !TAG_ALIASES[w]);
     for (const word of words) {
@@ -106,19 +116,14 @@ export async function buildQuestions(task: string, selection: Selection, root: s
       const candidates = collectCandidates(word, contents);
       if (candidates.length < 2 || candidates.length > 9) continue;
 
-      const matched = candidates.filter((c) =>
-        discriminators.some((d) => c.snippet.toLowerCase().includes(d)),
-      );
+      const matched = candidates.filter((c) => discriminators.some((d) => c.snippet.toLowerCase().includes(d)));
       if (matched.length === 1) continue; // task already pins it down — proceed silently
       const pool = matched.length >= 2 ? matched : candidates; // narrowed but still ambiguous → ask among the matches
 
       questions.push({
         key: `target_${word}`,
         message: `Your task mentions "${word}" — I found ${pool.length}. Which do you mean?`,
-        choices: [
-          ...pool.map((c) => ({ title: c.title, value: c.title })),
-          { title: "All of them", value: "__all__" },
-        ],
+        choices: [...pool.map((c) => ({ title: c.title, value: c.title })), { title: "All of them", value: "__all__" }],
         refine: (answer) => {
           if (!answer || answer.length === 0) return null;
           if (answer.includes("__all__")) return `Apply the change to every ${word} in the selected files.`;
@@ -129,11 +134,9 @@ export async function buildQuestions(task: string, selection: Selection, root: s
     }
   }
 
-  // 2. File scope: several primary (edit-target) files, task names none of
-  // them, and the ranking couldn't pick a clear winner. Supporting files are
-  // context, not edit targets, so they don't drive this question. Gated on
-  // confidence — this is the "which file" question that tends to over-ask;
-  // when the ranking has a dominant anchor we trust it and stay silent.
+  // 2. File scope: several primary (edit-target) files, task names none, and
+  // the ranking couldn't pick a clear winner. Gated on confidence — this is the
+  // "which file" question that tends to over-ask.
   if (!rankingIsConfident(selection) && selection.primary.length >= 3) {
     const taskLower = task.toLowerCase();
     const namesAFile = selection.primary.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
@@ -156,25 +159,45 @@ export async function buildQuestions(task: string, selection: Selection, root: s
   return questions;
 }
 
-/**
- * Interactive loop: ask the generated questions plus open follow-ups, and
- * return refinement sentences to compile into the task. Ctrl-C or empty
- * answers stop gracefully.
- */
-export async function askClarifications(task: string, selection: Selection, root: string): Promise<string[]> {
-  const refinements: string[] = [];
+// Evidence-backed clarification (spec §Clarification policy): name the copy and
+// where each instance lives, rather than a bare "which one?".
+function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQuestion {
+  const verb = frame.action === "other" || frame.action === "add" ? "change" : frame.action;
+  const noun = dup.instances.length === 1 ? "target" : "targets";
+  return {
+    key: "target_location",
+    message: `${dup.instances.length} matching "${dup.phrase}" ${noun} — ${sectionSummary(dup.instances)}. Which should I ${verb}?`,
+    choices: [
+      ...dup.instances.map((l) => ({ title: l.label, value: l.value })),
+      { title: "All of them", value: "__all__" },
+    ],
+    refine: (answer) => {
+      if (!answer || answer.length === 0) return null;
+      if (answer.includes("__all__")) return `Apply the change to all ${dup.instances.length} occurrences of "${dup.phrase}".`;
+      const picked = answer.filter((a) => a !== "__all__");
+      if (picked.length === 0) return null;
+      return `Apply the change ONLY at ${picked.join(" and ")} (the "${dup.phrase}" there). Leave every other occurrence of "${dup.phrase}" unchanged.`;
+    },
+  };
+}
 
-  // We no longer short-circuit on file-confidence here. buildQuestions itself
-  // decides what's worth asking: it stays silent when the target is clear, but
-  // still surfaces a genuinely ambiguous target — e.g. the same copy appearing
-  // in several places — even when the *file* is a confident single anchor.
-  // (The noisy "which file" question remains gated on confidence internally.)
-  const questions = await buildQuestions(task, selection, root);
-  if (questions.length === 0) return refinements; // nothing ambiguous to ask
+function styleContinuationNote(): string {
+  return (
+    "The visual styling isn't fully specified — continue the existing design rather than inventing new values: " +
+    "reuse the colors, spacing, typography, radius, and variants already used by sibling elements and the project's design tokens."
+  );
+}
+
+/**
+ * Ask a set of prepared questions and return the refinement sentences. Ctrl-C
+ * or an empty answer stops gracefully, keeping whatever was answered so far.
+ */
+export async function runQuestions(questions: ClarifyQuestion[]): Promise<string[]> {
+  const refinements: string[] = [];
+  if (questions.length === 0) return refinements;
 
   log.info("");
   log.dim("Quick check to target the change precisely (space = select, enter = confirm):");
-
   for (const q of questions) {
     const answer = await prompts({
       type: "multiselect",
@@ -187,122 +210,15 @@ export async function askClarifications(task: string, selection: Selection, root
     const line = q.refine(answer[q.key] as string[]);
     if (line) {
       refinements.push(line);
-      log.dim(`  ✓ noted`);
+      log.dim("  ✓ noted");
     }
   }
-  // No open-ended "anything else?" rounds — the confirm step's "Edit manifest"
-  // covers adding context, so decisions stay quick.
-
   return refinements;
 }
 
 export function compileTask(task: string, refinements: string[]): string {
   if (refinements.length === 0) return task;
   return `${task}\n\nClarified details:\n${refinements.map((r) => `- ${r}`).join("\n")}`;
-}
-
-interface DupLocation {
-  file: string;
-  line: number;
-  label: string; // shown to the user, e.g. `index.html:8 · in <footer> → This Testing`
-  value: string; // compiled into the refinement, e.g. `index.html:8 · in <footer>`
-}
-interface DupTarget {
-  phrase: string;
-  locations: DupLocation[];
-}
-
-// Inline elements whose visible text a user is likely to name ("remove the
-// Buy now button" / "remove This Testing"). Single-line open→text→close only;
-// {…} is excluded so JSX expressions aren't captured as literal text.
-const ELEMENT_RE =
-  /<(button|a|h1|h2|h3|h4|h5|li|label|span|p|strong|em|small|figcaption|option|summary|td|th)\b[^>]*>([^<>{}]{2,60})<\/\s*\1\s*>/gi;
-
-// Landmarks used to tell otherwise-identical occurrences apart (nav vs footer).
-const LANDMARK_RE = /<(nav|header|footer|main|aside|section|form|dialog|table)\b([^>]*)>/i;
-
-/**
- * Find where the task's *specific* target lives, and if it resolves to more
- * than one place, return them so the user can pick. Two ways in:
- *   1. A quoted phrase in the task (`remove "This Testing"`) — matched as a
- *      substring across UI files, so it catches visible text and attributes.
- *   2. Repeated element copy the task references by its words (two buttons both
- *      reading "This Testing", task says "remove This Testing").
- * Distinct file:line locations only; 2–9 of them (one = unambiguous, many = a
- * global rename, not a targeting question).
- */
-function collectDuplicateTargets(task: string, contents: Map<string, string>): DupTarget | null {
-  // 1. Quoted target — the strongest signal that the user named one thing.
-  const quoted = [...task.matchAll(/["'“”‘’]([^"'“”‘’]{2,60})["'“”‘’]/g)].map((m) => m[1].trim()).filter(Boolean);
-  for (const phrase of quoted) {
-    const locations = findPhraseLocations(phrase, contents);
-    if (locations.length >= 2 && locations.length <= 9) return { phrase, locations };
-  }
-
-  // 2. Repeated element copy the task refers to.
-  const taskWords = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
-  const groups = new Map<string, DupLocation[]>();
-  const display = new Map<string, string>();
-  for (const [file, content] of contents) {
-    if (!UI_FILE.test(file)) continue;
-    const lines = content.split("\n");
-    lines.forEach((line, i) => {
-      for (const m of line.matchAll(ELEMENT_RE)) {
-        const text = m[2].replace(/\s+/g, " ").trim();
-        if (!text) continue;
-        const key = text.toLowerCase();
-        display.set(key, text);
-        const loc = makeLocation(file, i + 1, text, enclosingLandmark(lines, i));
-        const bucket = groups.get(key) ?? [];
-        if (!bucket.some((b) => b.value === loc.value)) bucket.push(loc);
-        groups.set(key, bucket);
-      }
-    });
-  }
-  for (const [key, locations] of groups) {
-    if (locations.length < 2 || locations.length > 9) continue;
-    const sig = key.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
-    if (sig.length === 0) continue;
-    const overlap = sig.filter((w) => taskWords.has(w)).length;
-    // The task must actually reference this copy: at least two significant
-    // words (or all, if fewer) and a majority of them present in the task.
-    if (overlap < Math.min(2, sig.length) || overlap / sig.length < 0.5) continue;
-    return { phrase: display.get(key) ?? key, locations };
-  }
-  return null;
-}
-
-function findPhraseLocations(phrase: string, contents: Map<string, string>): DupLocation[] {
-  const needle = phrase.toLowerCase();
-  const out: DupLocation[] = [];
-  const seen = new Set<string>();
-  for (const [file, content] of contents) {
-    const lines = content.split("\n");
-    lines.forEach((line, i) => {
-      if (!line.toLowerCase().includes(needle)) return;
-      const value = `${file}:${i + 1}`;
-      if (seen.has(value)) return;
-      seen.add(value);
-      out.push(makeLocation(file, i + 1, line, UI_FILE.test(file) ? enclosingLandmark(lines, i) : ""));
-    });
-  }
-  return out;
-}
-
-function makeLocation(file: string, line: number, snippet: string, landmark: string): DupLocation {
-  const where = landmark ? ` · in <${landmark}>` : "";
-  return { file, line, label: `${file}:${line}${where} → ${clean(snippet)}`, value: `${file}:${line}${where}` };
-}
-
-/** Nearest enclosing landmark tag scanning upward — labels identical copy. */
-function enclosingLandmark(lines: string[], idx: number): string {
-  for (let i = idx; i >= 0 && i >= idx - 80; i--) {
-    const m = lines[i].match(LANDMARK_RE);
-    if (!m) continue;
-    const id = m[2].match(/\bid=["']([^"']+)["']/);
-    return id ? `${m[1].toLowerCase()}#${id[1]}` : m[1].toLowerCase();
-  }
-  return "";
 }
 
 function collectCandidates(term: string, contents: Map<string, string>): Candidate[] {

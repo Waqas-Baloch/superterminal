@@ -7,7 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { indexRepo, type RepoIndex } from "../core/indexer";
 import { buildGraph } from "../core/mapper";
 import { selectFiles, fullSelection } from "../core/selector";
-import { askClarifications, compileTask } from "../core/clarify";
+import { assessTask, runQuestions, compileTask } from "../core/clarify";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -27,7 +27,7 @@ import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens, formatTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
-import { printSelection, printManifestBox } from "./shared";
+import { printSelection, printManifestBox, printBand } from "./shared";
 
 const MAX_REPAIRS = 2;
 
@@ -281,17 +281,33 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       }
     }
 
-    // 3.5: clarify ambiguity before spending anything — every answer is
-    // compiled back into the task, then selection re-runs with the sharper ask
+    // 3.5: understand & clarify before spending anything. Ranking says what's
+    // relevant; this layer decides what's *safely resolvable* and sorts the
+    // task into one of four bands (green/yellow/orange/red).
     const interactive = Boolean(process.stdin.isTTY) && !opts.yes && opts.ask !== false;
-    if (interactive) {
-      const refinements = await askClarifications(task, selection, root);
-      if (refinements.length > 0) {
-        finalTask = compileTask(task, refinements);
-        const reSpin = ora("Re-targeting with clarified task…").start();
-        selection = await selectFiles({ task: finalTask, root, index, graph, budget, seeds });
-        reSpin.stop();
-      }
+    const assessment = await assessTask(task, selection, root);
+    printBand(assessment.band, assessment.reason);
+
+    // Red: a destructive edit collides with identical targets in several
+    // places. Never auto-apply it blind — if we can't ask (no TTY / --yes),
+    // stop with the evidence instead of nuking every occurrence.
+    if (assessment.band === "red" && !interactive) {
+      log.warn(`Blocked: ${assessment.reason}.`);
+      log.dim("Name the exact target or section in your task, or re-run interactively (without --yes) to choose.");
+      process.exitCode = 1;
+      return;
+    }
+
+    // Orange/Red (interactive): ask the focused question(s). Answers change the
+    // targeting, so re-select. Yellow: no question — just tell the agent to
+    // continue the existing design (doesn't change which files we pick).
+    const answered = interactive && assessment.questions.length > 0 ? await runQuestions(assessment.questions) : [];
+    const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;
+    if (refinements.length > 0) finalTask = compileTask(task, refinements);
+    if (answered.length > 0) {
+      const reSpin = ora("Re-targeting with clarified task…").start();
+      selection = await selectFiles({ task: finalTask, root, index, graph, budget, seeds });
+      reSpin.stop();
     }
 
     printSelection(selection);

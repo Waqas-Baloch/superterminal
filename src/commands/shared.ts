@@ -1,8 +1,27 @@
 import pc from "picocolors";
 import type { Selection, SelectedFile } from "../core/selector";
+import type { Band } from "../core/understanding";
 import { renderBox, type BoxRow } from "../report/box";
 import { formatTokens } from "../util/tokens";
 import { log } from "../util/logger";
+
+// Four-band classifier readout (spec §Decision bands). Orange has no named
+// picocolors color, so it uses a 256-color escape (208) that degrades to the
+// terminal default where unsupported.
+const orange = (s: string): string => `\x1b[38;5;208m${s}\x1b[39m`;
+const BANDS: Record<Band, { paint: (s: string) => string; label: string; behavior: string }> = {
+  green: { paint: pc.green, label: "Green", behavior: "safe to execute" },
+  yellow: { paint: pc.yellow, label: "Yellow", behavior: "target clear — continuing the existing style" },
+  orange: { paint: orange, label: "Orange", behavior: "clarification needed" },
+  red: { paint: pc.red, label: "Red", behavior: "unsafe — blocked pending clarification" },
+};
+
+export function printBand(band: Band, reason: string): void {
+  const b = BANDS[band];
+  log.info("");
+  log.info(`${b.paint("●")} ${b.paint(pc.bold(b.label))} — ${b.behavior}`);
+  if (reason) log.dim(`  ${reason}`);
+}
 
 // Extension → language label. Anything unknown lands in "Other files",
 // so new languages degrade gracefully instead of disappearing.
