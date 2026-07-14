@@ -94,6 +94,50 @@ describe("duplicate detector", () => {
     expect(dup!.instances.map((i) => i.landmark)).toEqual(expect.arrayContaining(["nav", "footer"]));
   });
 
+  it("catches multi-line React component instances (not just single-line HTML)", () => {
+    const jsx = `export function Page() {
+  return (
+    <div>
+      <nav>
+        <Button className="cta">
+          Try Now
+        </Button>
+      </nav>
+      <footer>
+        <Button className="cta">
+          Try Now
+        </Button>
+      </footer>
+    </div>
+  );
+}`;
+    const dup = detectDuplicate("remove the Try Now button", new Map([["src/Page.tsx", jsx]]));
+    expect(dup).not.toBeNull();
+    expect(dup!.instances).toHaveLength(2);
+    expect(dup!.crossSection).toBe(true);
+    expect(dup!.instances.map((i) => i.landmark)).toEqual(expect.arrayContaining(["nav", "footer"]));
+  });
+
+  it("catches the same copy split across two component files", () => {
+    const header = `export const Header = () => (\n  <header>\n    <CtaButton>Get Started</CtaButton>\n  </header>\n);`;
+    const footer = `export const Footer = () => (\n  <footer>\n    <CtaButton>Get Started</CtaButton>\n  </footer>\n);`;
+    const dup = detectDuplicate("delete Get Started", new Map([
+      ["src/Header.tsx", header],
+      ["src/Footer.tsx", footer],
+    ]));
+    expect(dup).not.toBeNull();
+    expect(dup!.crossFile).toBe(true);
+    expect(dup!.instances.map((i) => i.file)).toEqual(
+      expect.arrayContaining(["src/Header.tsx", "src/Footer.tsx"]),
+    );
+  });
+
+  it("ignores code that merely looks like text between tags", () => {
+    // `>…<` inside expressions shouldn't be treated as visible duplicate copy.
+    const jsx = `<div>\n  {items.map((i) => (\n    <span>{i.label}</span>\n  ))}\n</div>\n<p>a > b and c < d</p>`;
+    expect(detectDuplicate("remove the label", new Map([["x.tsx", jsx]]))).toBeNull();
+  });
+
   it("stays null when the copy is unique", async () => {
     const sel = selectionWith([], 1);
     sel.primary = [{ path: "solo.html", score: 1, tokens: 10, reasons: ["m"] }];

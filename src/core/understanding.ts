@@ -115,20 +115,27 @@ export interface AmbiguityReport {
   styleUnderspecified: boolean; // restyle request with no concrete color/size/etc.
 }
 
-// Inline elements whose visible text a user is likely to name. Single-line
-// open→text→close; {…} excluded so JSX expressions aren't captured as text.
-const ELEMENT_RE =
-  /<(button|a|h1|h2|h3|h4|h5|li|label|span|p|strong|em|small|figcaption|option|summary|td|th)\b[^>]*>([^<>{}]{2,60})<\/\s*\1\s*>/gi;
+// Visible text between any two tags — the copy a user is likely to name. This
+// is deliberately tag-agnostic and spans lines, so it catches multi-line
+// elements and React components (`<Button>…</Button>`, `<CustomCTA>…`) alike,
+// not just single-line HTML. `{…}` is excluded so JSX expressions and CSS/JS
+// braces aren't captured as literal copy.
+const TEXT_NODE_RE = />([^<>{}]{2,80})</g;
+// Reject captures that look like code rather than visible copy.
+const CODEY_RE = /;|=>|\/\/|\breturn\b|\bfunction\b|\bconst\b/;
 const LANDMARK_RE = /<(nav|header|footer|main|aside|section|form|dialog|table)\b([^>]*)>/i;
 const STYLE_VALUE_RE =
   /#([0-9a-f]{3,8})\b|\b\d+(\.\d+)?\s?(px|rem|em|%|pt|vh|vw)\b|\b(red|blue|green|black|white|gray|grey|yellow|orange|purple|pink|teal|navy|dark|light|bold|italic|transparent)\b/i;
 
 export async function readSelectionContents(selection: Selection, root: string): Promise<Map<string, string>> {
   // primary + supporting are the full-content files — the ambiguous element
-  // lives in one of them (optional files are signatures only).
-  const files = [...selection.primary, ...selection.supporting];
+  // Scan all three tiers: even a file we'd only send as signatures can hold a
+  // second copy of the target, and missing it is exactly the destructive bug
+  // we're guarding against.
+  const files = [...selection.primary, ...selection.supporting, ...selection.optional];
   const contents = new Map<string, string>();
   for (const f of files) {
+    if (contents.has(f.path)) continue;
     contents.set(f.path, await fs.readFile(nodePath.join(root, f.path), "utf8").catch(() => ""));
   }
   return contents;
@@ -160,18 +167,14 @@ export function detectDuplicate(task: string, contents: Map<string, string>): Du
   for (const [file, content] of contents) {
     if (!UI_FILE.test(file)) continue;
     const lines = content.split("\n");
-    lines.forEach((line, i) => {
-      for (const m of line.matchAll(ELEMENT_RE)) {
-        const text = m[2].replace(/\s+/g, " ").trim();
-        if (!text) continue;
-        const key = text.toLowerCase();
-        display.set(key, text);
-        const loc = makeInstance(file, i + 1, text, enclosingLandmark(lines, i));
-        const bucket = groups.get(key) ?? [];
-        if (!bucket.some((b) => b.value === loc.value)) bucket.push(loc);
-        groups.set(key, bucket);
-      }
-    });
+    for (const node of textNodes(content)) {
+      const key = node.text.toLowerCase();
+      display.set(key, node.text);
+      const loc = makeInstance(file, node.line, node.text, enclosingLandmark(lines, node.line - 1));
+      const bucket = groups.get(key) ?? [];
+      if (!bucket.some((b) => b.value === loc.value)) bucket.push(loc);
+      groups.set(key, bucket);
+    }
   }
   for (const [key, instances] of groups) {
     if (instances.length < 2 || instances.length > 9) continue;
@@ -190,6 +193,23 @@ function finalizeFinding(phrase: string, instances: Instance[]): DuplicateFindin
   const files = new Set(instances.map((i) => i.file));
   const sections = new Set(instances.map((i) => i.landmark || `${i.file}:${i.line}`));
   return { phrase, instances, crossFile: files.size > 1, crossSection: sections.size > 1 };
+}
+
+/** Visible text nodes in a file, tag-agnostic and multi-line, with 1-based line. */
+function textNodes(content: string): { line: number; text: string }[] {
+  const out: { line: number; text: string }[] = [];
+  for (const m of content.matchAll(TEXT_NODE_RE)) {
+    const text = m[1].replace(/\s+/g, " ").trim();
+    if (text.length < 2 || text.length > 60) continue;
+    if (!/[A-Za-z]/.test(text)) continue; // needs a letter — skip whitespace/punctuation runs
+    if (CODEY_RE.test(text)) continue; // looks like code, not visible copy
+    // Point at the first non-space char of the captured text (may be on a later
+    // line than the opening '>' for multi-line elements).
+    const lead = m[1].length - m[1].trimStart().length;
+    const idx = (m.index ?? 0) + 1 + lead;
+    out.push({ line: content.slice(0, idx).split("\n").length, text });
+  }
+  return out;
 }
 
 function findPhraseLocations(phrase: string, contents: Map<string, string>): Instance[] {
