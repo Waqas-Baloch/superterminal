@@ -44,8 +44,26 @@ export interface ComponentDef {
   renders: string[];
 }
 
+/**
+ * A named declaration a user can point at in non-UI code — the backend/CLI/
+ * library half of the Target Graph. `refs` is the blast radius: how many call
+ * sites break if this is deleted.
+ */
+export interface SymbolNode {
+  name: string;
+  kind: "function" | "class" | "interface" | "type" | "enum" | "const";
+  file: string;
+  line: number;
+  exported: boolean;
+  refs: number;
+  container: string; // enclosing class/function, for display
+  key: string;
+}
+
 export interface ElementGraph {
   elements: UIElement[];
+  /** Declared symbols (functions/classes/types/consts) across the scanned files. */
+  symbols: SymbolNode[];
   /** component name → its definition (if defined within the scanned files). */
   components: Map<string, ComponentDef>;
   /** component name → every place it is instantiated. */
@@ -53,7 +71,7 @@ export interface ElementGraph {
 }
 
 export function emptyGraph(): ElementGraph {
-  return { elements: [], components: new Map(), instancesByComponent: new Map() };
+  return { elements: [], symbols: [], components: new Map(), instancesByComponent: new Map() };
 }
 
 export function normalizeText(s: string): string {

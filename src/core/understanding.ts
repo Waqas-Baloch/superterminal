@@ -14,7 +14,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import { STOPWORDS, type Selection } from "./selector";
 import { buildElementGraph } from "./semantic/graph";
-import type { ElementGraph, UIElement } from "./semantic/types";
+import type { ElementGraph, SymbolNode, UIElement } from "./semantic/types";
 
 export const UI_FILE = /\.(html?|jsx|tsx)$/;
 export const STYLE_FILE = /\.(css|scss)$/;
@@ -285,8 +285,56 @@ function analyzeTargets(
   if (referenced.length === 1 && referenced[0].length === 1) {
     return { duplicate: null, resolvedTarget: elementInstance(referenced[0][0]) };
   }
+
+  // 3. Symbols — the non-UI half of the Target Graph. "remove the formatDate
+  //    helper" resolves exactly like "remove the Try Now button": one match →
+  //    act, several definitions → ask which (and a destructive edit across
+  //    files is broad impact → Red, since each definition has live callers).
+  const symbols = graph.symbols.filter((s) => inScope(s.file, scope));
+  const symGroups = referencedSymbolGroups(symbols, task);
+  const symCollided = symGroups.find((g) => g.length >= 2);
+  if (symCollided) {
+    return { duplicate: finalizeFinding(symCollided[0].name, symCollided.map(symbolInstance)), resolvedTarget: null };
+  }
+  if (symGroups.length === 1 && symGroups[0].length === 1) {
+    return { duplicate: null, resolvedTarget: symbolInstance(symGroups[0][0]) };
+  }
+
   return { duplicate: null, resolvedTarget: null };
 }
+
+/** Declared symbols the task names, grouped by name (a group of 2+ = collision). */
+function referencedSymbolGroups(symbols: SymbolNode[], task: string): SymbolNode[][] {
+  const words = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const byName = new Map<string, SymbolNode[]>();
+  for (const s of symbols) {
+    if (!namesSymbol(words, s.name)) continue;
+    const key = s.name.toLowerCase();
+    byName.set(key, [...(byName.get(key) ?? []), s]);
+  }
+  return [...byName.values()].filter((g) => g.length <= 9);
+}
+
+/** "formatDate" matches the token `formatdate`, or the words "format date". */
+function namesSymbol(words: Set<string>, name: string): boolean {
+  if (name.length < 3) return false;
+  if (words.has(name.toLowerCase())) return true;
+  const parts = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[\s_-]+/)
+    .filter((p) => p.length >= 3);
+  return parts.length >= 2 && parts.every((p) => words.has(p));
+}
+
+const symbolInstance = (s: SymbolNode): Instance => ({
+  file: s.file,
+  line: s.line,
+  landmark: s.container, // reuse the "where" slot: enclosing class/function
+  text: s.name,
+  value: `${s.file}:${s.line}`,
+  label: `${s.file}:${s.line} → ${s.kind} ${s.name}${s.refs > 0 ? ` (${s.refs} use${s.refs === 1 ? "" : "s"})` : ""}`,
+});
 
 /** Element groups (by identical copy) that the task actually refers to. */
 function referencedGroups(elements: UIElement[], task: string): UIElement[][] {
@@ -483,10 +531,19 @@ export function classifyBand(frame: IntentFrame, selection: Selection, ambiguity
 /** "the navbar and the footer" / "3 sections" — human summary of where copies live. */
 export function sectionSummary(instances: Instance[]): string {
   const labels = [...new Set(instances.map((i) => friendlyLandmark(i.landmark)).filter(Boolean))];
-  if (labels.length === 0) return `${instances.length} places`;
-  if (labels.length === 1) return labels[0];
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-  return `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
+  if (labels.length === 0) {
+    // No landmarks — e.g. symbols. Locate them by file instead, which is the
+    // meaningful "where" for a function/class.
+    const files = [...new Set(instances.map((i) => i.file))];
+    return files.length > 1 ? joinList(files) : `${instances.length} places`;
+  }
+  return joinList(labels);
+}
+
+function joinList(items: string[]): string {
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
 }
 
 function friendlyLandmark(landmark: string): string {

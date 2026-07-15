@@ -1,5 +1,6 @@
 import { parseHtmlElements } from "./html";
 import { parseJsxFiles } from "./jsx";
+import { parseSymbols } from "./symbols";
 import { type ElementGraph, type UIElement, type ComponentDef } from "./types";
 
 const HTML_FILE = /\.(html?|htm)$/;
@@ -36,7 +37,7 @@ export function buildElementGraph(contents: Map<string, string>): ElementGraph {
     instancesByComponent.set(el.role, arr);
   }
 
-  return { elements, components, instancesByComponent };
+  return { elements, symbols: parseSymbols(contents), components, instancesByComponent };
 }
 
 export * from "./types";

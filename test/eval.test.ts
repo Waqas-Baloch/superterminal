@@ -194,6 +194,40 @@ const CASES: EvalCase[] = [
     band: "green", // one "Try Now" on the named page → nothing to ask
     unresolvedRanking: true, // and the ranking alone could not have decided
   },
+  // ── Non-UI products (backend / CLI / library). The same target machinery:
+  // a symbol collision is the backend twin of two identical buttons.
+  {
+    name: "backend: same helper defined twice, destructive → block (the UI-blind spot)",
+    files: {
+      "src/users/format.ts": "export function formatDate(d: Date) {\n  return d.toISOString();\n}\n",
+      "src/billing/format.ts": "export function formatDate(d: Date) {\n  return d.toLocaleDateString();\n}\n",
+      "src/api/invoice.ts": 'import { formatDate } from "../billing/format";\nexport const render = (d: Date) => formatDate(d);\n',
+    },
+    request: "remove the formatDate function",
+    band: "red",
+    targets: ["src/users/format.ts", "src/billing/format.ts"],
+    unresolvedRanking: true,
+  },
+  {
+    name: "backend: unambiguous symbol → execute, ask nothing",
+    files: {
+      "src/api/invoice.ts": "export const renderInvoice = (id: string) => id;\n",
+      "src/api/profile.ts": "export const showProfile = (id: string) => id;\n",
+    },
+    request: "rename renderInvoice to renderBill",
+    band: "green",
+    unresolvedRanking: true,
+  },
+  {
+    name: "backend: symbol named in words (format date), two definitions → ask",
+    files: {
+      "src/a/util.ts": "export function formatDate(d: Date) {\n  return d.toISOString();\n}\n",
+      "src/b/util.ts": "export function formatDate(d: Date) {\n  return String(d);\n}\n",
+    },
+    request: "update the format date helper to use ISO",
+    band: "orange", // non-destructive collision → ask which, don't block
+    unresolvedRanking: true,
+  },
   {
     name: "additive task, no existing target → execute (green)",
     files: { "index.html": html("  <main><h1>Home</h1></main>") },

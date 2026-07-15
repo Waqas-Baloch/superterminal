@@ -35,6 +35,46 @@ describe("semantic element graph — HTML (parse5)", () => {
   });
 });
 
+describe("semantic target graph — symbols (the non-UI half)", () => {
+  it("extracts declarations with kind, export status, and blast radius", () => {
+    const g = buildElementGraph(
+      new Map([
+        ["src/util.ts", "export function formatDate(d: Date) { return d.toISOString(); }\nclass Helper {}\n"],
+        ["src/a.ts", 'import { formatDate } from "./util";\nexport const a = (d: Date) => formatDate(d);\n'],
+        ["src/b.ts", 'import { formatDate } from "./util";\nexport const b = (d: Date) => formatDate(d);\n'],
+      ]),
+    );
+    const fmt = g.symbols.find((s) => s.name === "formatDate" && s.file === "src/util.ts");
+    expect(fmt?.kind).toBe("function");
+    expect(fmt?.exported).toBe(true);
+    expect(fmt?.refs).toBeGreaterThan(0); // used by a.ts and b.ts → deleting it breaks callers
+
+    expect(g.symbols.find((s) => s.name === "Helper")?.kind).toBe("class");
+    expect(g.symbols.find((s) => s.name === "a")?.exported).toBe(true);
+  });
+
+  it("finds the same name declared in two modules (a collision)", () => {
+    const g = buildElementGraph(
+      new Map([
+        ["src/x/format.ts", "export function formatDate(d: Date) { return String(d); }"],
+        ["src/y/format.ts", "export function formatDate(d: Date) { return String(d); }"],
+      ]),
+    );
+    expect(g.symbols.filter((s) => s.name === "formatDate")).toHaveLength(2);
+  });
+
+  it("captures types and interfaces, and survives an unparseable file", () => {
+    const g = buildElementGraph(
+      new Map([
+        ["src/t.ts", "export interface Order { id: string }\nexport type Id = string;\n"],
+        ["src/broken.ts", "export function ((("],
+      ]),
+    );
+    expect(g.symbols.find((s) => s.name === "Order")?.kind).toBe("interface");
+    expect(g.symbols.find((s) => s.name === "Id")?.kind).toBe("type");
+  });
+});
+
 describe("semantic element graph — JSX/TSX (ts-morph)", () => {
   it("extracts multi-line React component instances with landmark and component role", () => {
     const jsx = `export function Page() {
