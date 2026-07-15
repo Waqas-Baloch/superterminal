@@ -124,7 +124,12 @@ function composeQuestions(
   // *which occurrence* is not.
   if (ambiguity.duplicate) {
     questions.push(duplicateQuestion(frame, ambiguity.duplicate));
-  } else {
+  } else if (!ambiguity.resolvedTarget) {
+    // The task named a copy that matches exactly one element — the target is
+    // already known, so asking "which button?" would be pure noise. (This is
+    // also what stops us listing unrelated <button>s when the named target is
+    // an <a>/component that simply isn't a button.)
+    //
     // 1b. Element ambiguity: "the button" when there are several buttons. If
     // the task's own words single out one ("the BUY button"), stay silent.
     const words = [...new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean))];
@@ -154,8 +159,15 @@ function composeQuestions(
 
   // 2. File scope: several primary (edit-target) files, task names none, and
   // the ranking couldn't pick a clear winner. Gated on confidence — this is the
-  // "which file" question that tends to over-ask.
-  if (!rankingIsConfident(selection) && selection.primary.length >= 3) {
+  // "which file" question that tends to over-ask. Also skipped when the target
+  // already resolved to one element, or the task named the page ("home page"),
+  // in which case we already know the file.
+  if (
+    !ambiguity.resolvedTarget &&
+    !ambiguity.scoped &&
+    !rankingIsConfident(selection) &&
+    selection.primary.length >= 3
+  ) {
     const taskLower = task.toLowerCase();
     const namesAFile = selection.primary.some((f) => taskLower.includes(nodePath.basename(f.path).toLowerCase()));
     if (!namesAFile) {

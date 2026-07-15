@@ -21,6 +21,7 @@ interface EvalCase {
   band: Band; // gold band
   targets?: string[]; // gold target landmarks and/or files the edit should resolve to
   excludes?: string[]; // locations/files that must NOT be offered (e.g. other pages)
+  unresolvedRanking?: boolean; // model "ranking surfaced several files, no dominant anchor"
 }
 
 const html = (body: string) => `<!doctype html><html><body>\n${body}\n</body></html>`;
@@ -176,6 +177,24 @@ const CASES: EvalCase[] = [
     band: "green",
   },
   {
+    name: "named target on a named page, unrelated buttons present → execute, ask nothing",
+    files: {
+      "index.html": html(
+        '  <nav><a class="cta" href="/signup">Try Now</a></nav>\n' +
+          '  <section id="pricing">\n' +
+          '    <button class="billing-opt is-active" type="button">Monthly</button>\n' +
+          '    <button class="billing-opt" type="button">Annually</button>\n' +
+          '    <button type="submit" class="plan-btn">Join</button>\n' +
+          "  </section>",
+      ),
+      "refund.html": html("  <main><p>Refund policy</p></main>"),
+      "styles.css": ".cta { color: white; }",
+    },
+    request: "remove Try now Button from home page",
+    band: "green", // one "Try Now" on the named page → nothing to ask
+    unresolvedRanking: true, // and the ranking alone could not have decided
+  },
+  {
     name: "additive task, no existing target → execute (green)",
     files: { "index.html": html("  <main><h1>Home</h1></main>") },
     request: "add a newsletter signup form",
@@ -183,19 +202,21 @@ const CASES: EvalCase[] = [
   },
 ];
 
-function selectionFor(files: string[]): Selection {
-  // These cases isolate the understanding layer; assume the ranking resolved a
-  // single confident file (the duplicate/list branches fire before this matters).
+function selectionFor(files: string[], unresolved = false): Selection {
+  // Most cases isolate the understanding layer and assume the ranking resolved
+  // a single confident file. `unresolved` models the harder real case: several
+  // candidate files and no dominant anchor, where only the task's own wording
+  // (e.g. "…from home page") can pin the target.
   return {
     task: "",
-    primary: [{ path: files[0], score: 1, tokens: 10, reasons: ["m"] }],
+    primary: (unresolved ? files : [files[0]]).map((p) => ({ path: p, score: 1, tokens: 10, reasons: ["m"] })),
     supporting: [],
     optional: [],
     totalTokens: 10,
     budget: 30_000,
     taskType: "ui",
     taskConfidence: 0.9,
-    anchors: [{ path: files[0], score: 0.9 }],
+    anchors: unresolved ? [] : [{ path: files[0], score: 0.9 }],
   };
 }
 
@@ -203,7 +224,8 @@ function run(c: EvalCase) {
   const contents = new Map(Object.entries(c.files));
   const frame = buildIntentFrame(c.request);
   const ambiguity = detectAmbiguity(c.request, frame, contents);
-  const { band, reason } = classifyBand(frame, selectionFor(Object.keys(c.files)), ambiguity);
+  const selection = selectionFor(Object.keys(c.files), c.unresolvedRanking);
+  const { band, reason } = classifyBand(frame, selection, ambiguity);
 
   const detected = new Set<string>();
   for (const i of ambiguity.duplicate?.instances ?? []) {

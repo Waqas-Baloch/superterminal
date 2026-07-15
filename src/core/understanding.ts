@@ -123,6 +123,15 @@ export interface AmbiguityReport {
   duplicate: DuplicateFinding | null;
   styleUnderspecified: boolean; // restyle request with no concrete color/size/etc.
   listTarget?: ListTarget | null; // destructive edit aimed at a list-rendered element
+  /** The copy the task named matches exactly one element — nothing to ask. */
+  resolvedTarget?: Instance | null;
+  /** The task named a page/file, so the edit target's file is already known. */
+  scoped?: boolean;
+}
+
+export interface TargetAnalysis {
+  duplicate: DuplicateFinding | null;
+  resolvedTarget: Instance | null;
 }
 
 const LANDMARK_RE = /<(nav|header|footer|main|aside|section|form|dialog|table)\b([^>]*)>/i;
@@ -173,8 +182,11 @@ export async function findMissingKeeps(root: string, keep: Instance[]): Promise<
 export function detectAmbiguity(task: string, frame: IntentFrame, contents: Map<string, string>): AmbiguityReport {
   const graph = buildElementGraph(contents); // parse once, share across detectors
   const scope = scopeFiles(task, [...contents.keys()]);
+  const { duplicate, resolvedTarget } = analyzeTargets(graph, task, contents, scope);
   return {
-    duplicate: duplicateFromGraph(graph, task, contents, scope),
+    duplicate,
+    resolvedTarget,
+    scoped: scope !== null,
     styleUnderspecified: frame.action === "restyle" && !STYLE_VALUE_RE.test(frame.raw),
     listTarget: frame.risk === "destructive" ? detectListTarget(graph, task, scope) : null,
   };
@@ -225,15 +237,23 @@ function detectListTarget(graph: ElementGraph, task: string, scope: Set<string> 
  * unambiguous, many = a global rename rather than a targeting question).
  */
 export function detectDuplicate(task: string, contents: Map<string, string>): DuplicateFinding | null {
-  return duplicateFromGraph(buildElementGraph(contents), task, contents, scopeFiles(task, [...contents.keys()]));
+  return analyzeTargets(buildElementGraph(contents), task, contents, scopeFiles(task, [...contents.keys()])).duplicate;
 }
 
-function duplicateFromGraph(
+/**
+ * Resolve what the task names to concrete elements. Three outcomes:
+ *   • several matches  → a duplicate collision (ask which)
+ *   • exactly one      → the target is known (nothing to ask — proceed)
+ *   • none             → the task named no locatable copy (fall back to heuristics)
+ * Knowing "exactly one" matters as much as knowing "several": it's what stops
+ * Glint asking "which button?" when the task already said which.
+ */
+function analyzeTargets(
   graph: ElementGraph,
   task: string,
   contents: Map<string, string>,
   scope: Set<string> | null,
-): DuplicateFinding | null {
+): TargetAnalysis {
   // Honor a page/file the task named: only consider elements on that page, so
   // the same copy on other pages isn't offered as a target.
   const elements = graph.elements.filter((e) => inScope(e.file, scope));
@@ -245,12 +265,31 @@ function duplicateFromGraph(
   //    attributes like aria-label/title/alt still resolve.
   for (const phrase of quoted) {
     const els = dedupeElements(elementsMatchingPhrase(elements, phrase));
-    if (els.length >= 2 && els.length <= 9) return finalizeFinding(phrase, els.map(elementInstance), els);
+    if (els.length >= 2 && els.length <= 9) {
+      return { duplicate: finalizeFinding(phrase, els.map(elementInstance), els), resolvedTarget: null };
+    }
+    if (els.length === 1) return { duplicate: null, resolvedTarget: elementInstance(els[0]) };
     const raw = findPhraseLocations(phrase, scopedContents);
-    if (raw.length >= 2 && raw.length <= 9) return finalizeFinding(phrase, raw);
+    if (raw.length >= 2 && raw.length <= 9) return { duplicate: finalizeFinding(phrase, raw), resolvedTarget: null };
   }
 
-  // 2. Repeated element copy the task references by its words.
+  // 2. Element copy the task references by its words.
+  const referenced = referencedGroups(elements, task);
+  const collided = referenced.find((r) => r.length >= 2);
+  if (collided) {
+    return { duplicate: finalizeFinding(collided[0].text, collided.map(elementInstance), collided), resolvedTarget: null };
+  }
+  // Exactly one referenced copy, matching exactly one element → target known.
+  // (Two different referenced copies means the task named two things — still
+  // ambiguous, so leave it to the fallback heuristics.)
+  if (referenced.length === 1 && referenced[0].length === 1) {
+    return { duplicate: null, resolvedTarget: elementInstance(referenced[0][0]) };
+  }
+  return { duplicate: null, resolvedTarget: null };
+}
+
+/** Element groups (by identical copy) that the task actually refers to. */
+function referencedGroups(elements: UIElement[], task: string): UIElement[][] {
   const taskWords = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
   const groups = new Map<string, UIElement[]>();
   for (const el of elements) {
@@ -258,18 +297,19 @@ function duplicateFromGraph(
     const key = el.text.toLowerCase();
     groups.set(key, [...(groups.get(key) ?? []), el]);
   }
+  const out: UIElement[][] = [];
   for (const [key, group] of groups) {
     const els = dedupeElements(group);
-    if (els.length < 2 || els.length > 9) continue;
+    if (els.length > 9) continue; // a global rename, not a targeting question
     const sig = key.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
     if (sig.length === 0) continue;
     const overlap = sig.filter((w) => taskWords.has(w)).length;
     // The task must actually reference this copy: at least two significant
     // words (or all, if fewer) and a majority present in the task.
     if (overlap < Math.min(2, sig.length) || overlap / sig.length < 0.5) continue;
-    return finalizeFinding(els[0].text, els.map(elementInstance), els);
+    out.push(els);
   }
-  return null;
+  return out;
 }
 
 function elementsMatchingPhrase(elements: UIElement[], phrase: string): UIElement[] {
@@ -417,15 +457,24 @@ export function classifyBand(frame: IntentFrame, selection: Selection, ambiguity
     };
   }
 
-  if (ambiguity.styleUnderspecified && rankingIsConfident(selection)) {
+  if (ambiguity.styleUnderspecified && (rankingIsConfident(selection) || ambiguity.resolvedTarget)) {
     return { band: "yellow", reason: "target is clear but styling is underspecified — will continue the existing design" };
+  }
+
+  // The task named a copy that resolves to exactly one element — there is
+  // nothing to ask, regardless of how many files the ranking surfaced.
+  if (ambiguity.resolvedTarget) {
+    const t = ambiguity.resolvedTarget;
+    const where = t.landmark ? ` inside <${t.landmark}>` : "";
+    return { band: "green", reason: `“${t.text}”${where} (${t.file}) is the only match` };
   }
 
   if (rankingIsConfident(selection)) return { band: "green", reason: "one clearly dominant target" };
 
   // No concrete collision, but the ranking couldn't single out an edit target
-  // among several files — a focused "which file" question can resolve it.
-  if (selection.primary.length >= 3) {
+  // among several files — a focused "which file" question can resolve it. Skip
+  // when the task already named the page/file.
+  if (!ambiguity.scoped && selection.primary.length >= 3) {
     return { band: "orange", reason: "several files could be the edit target" };
   }
   return { band: "green", reason: "target resolved by ranking" };

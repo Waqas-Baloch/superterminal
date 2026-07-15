@@ -38,6 +38,23 @@ beforeAll(async () => {
   await fs.writeFile(path.join(dir, "theme.css"), ":root { --primary: #333; }\n");
   await fs.writeFile(path.join(dir, "single.html"), '<body><button class="only">Only one</button></body>');
 
+  // A real-world home page: the named target ("Try Now") is a LINK, and the
+  // only <button>s on the page are unrelated. Naming it must not make Glint
+  // offer those buttons.
+  await fs.writeFile(
+    path.join(dir, "home.html"),
+    [
+      "<body>",
+      '  <nav><a class="cta" href="/signup">Try Now</a></nav>',
+      '  <section id="pricing">',
+      '    <button class="billing-opt is-active" type="button">Monthly</button>',
+      '    <button class="billing-opt" type="button">Annually</button>',
+      '    <button type="submit" class="plan-btn">Join</button>',
+      "  </section>",
+      "</body>",
+    ].join("\n"),
+  );
+
   // Two buttons with identical copy in different landmarks — the exact case
   // where "remove This Testing" would otherwise nuke both.
   await fs.writeFile(
@@ -118,6 +135,24 @@ describe("buildQuestions", () => {
 
     expect(q.refine(["__all__"])).toContain("every button");
     expect(q.refine([])).toBeNull();
+  });
+});
+
+describe("a well-specified task asks nothing", () => {
+  it("does not offer unrelated buttons when the named target is a link", async () => {
+    // "Try Now" is an <a>, not a <button>. The old tag-word fallback listed
+    // every <button> on the page because the discriminator matched none.
+    const task = "remove Try now Button from home page";
+    const questions = await buildQuestions(task, makeSelection(["home.html"], task), dir);
+    expect(questions).toEqual([]);
+  });
+
+  it("does not ask which file when the task named the page", async () => {
+    // Three candidate files and no dominant anchor, but "index page" pins it.
+    const task = "remove the Subscribe button from index page";
+    const questions = await buildQuestions(task, makeSelection(["index.html", "styles.css", "theme.css"], task), dir);
+    expect(questions.find((q) => q.key === "file_scope")).toBeUndefined();
+    expect(questions).toEqual([]);
   });
 });
 
