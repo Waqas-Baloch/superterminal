@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import ora from "ora";
+import { spin } from "../report/spinner";
 import pc from "picocolors";
 import prompts from "prompts";
 import Anthropic from "@anthropic-ai/sdk";
@@ -112,7 +112,7 @@ export async function applyProvider(provider: ProviderId): Promise<boolean> {
 }
 
 async function verify(client: Anthropic, opts?: { quiet?: boolean }): Promise<boolean> {
-  const spinner = opts?.quiet ? null : ora("Verifying credentials…").start();
+  const spinner = opts?.quiet ? null : spin("Verifying credentials…").start();
   try {
     await client.models.retrieve("claude-opus-4-8"); // free metadata call — no tokens billed
     spinner?.succeed("Credentials verified");

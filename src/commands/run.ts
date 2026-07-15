@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
+import { spin } from "../report/spinner";
 import nodePath from "node:path";
-import ora from "ora";
 import pc from "picocolors";
 import prompts from "prompts";
 import Anthropic from "@anthropic-ai/sdk";
@@ -241,7 +241,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   const sessionNote = buildSessionNote(ctx.memory);
 
   // 1-3: index, map, select
-  const spinner = ora("Indexing repo…").start();
+  const spinner = spin("Indexing repo…").start();
   const index = await indexRepo(root, config);
 
   let finalTask = task;
@@ -312,7 +312,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;
     if (refinements.length > 0) finalTask = compileTask(task, refinements);
     if (answered.length > 0) {
-      const reSpin = ora("Re-targeting with clarified task…").start();
+      const reSpin = spin("Re-targeting with clarified task…").start();
       selection = await selectFiles({ task: finalTask, root, index, graph, budget, seeds });
       reSpin.stop();
     }
@@ -440,7 +440,7 @@ async function runViaApi(
   opts: RunOptions,
 ): Promise<RunOutcome | null> {
   const stage = new EditStage(root);
-  const work = ora("Claude is working…").start();
+  const work = spin("Claude is working…").start();
   const runner = new ClaudeRunner({
     model,
     stage,
@@ -486,7 +486,7 @@ async function runViaApi(
         );
         break;
       }
-      const rSpin = ora(`Repair attempt ${attempt + 1}/${MAX_REPAIRS}…`).start();
+      const rSpin = spin(`Repair attempt ${attempt + 1}/${MAX_REPAIRS}…`).start();
       try {
         summary = await runner.continueWith(repairPrompt(failed));
       } catch (err) {
@@ -677,7 +677,7 @@ async function backupAndDiff(
 
 /** Runs validators with a spinner. Returns null when the repo has none configured. */
 async function validate(root: string): Promise<ValidationResult[] | null> {
-  const spinner = ora("Validating…").start();
+  const spinner = spin("Validating…").start();
   const results = await runValidators(root);
   spinner.stop();
   if (results.length === 0) {

@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
+import { spin } from "../report/spinner";
 import nodePath from "node:path";
-import ora from "ora";
 import pc from "picocolors";
 import { indexRepo } from "../core/indexer";
 import { buildGraph } from "../core/mapper";
@@ -23,7 +23,7 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
   const config = await loadConfig(root);
   const budget = opts.budget ? Number(opts.budget) : config.budgetTokens;
 
-  const spinner = ora("Indexing repo…").start();
+  const spinner = spin("Indexing repo…").start();
   const index = await indexRepo(root, config);
   if (index.files.length === 0) {
     spinner.succeed("No source files yet — nothing to compress.");

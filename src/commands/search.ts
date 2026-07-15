@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
+import { spin } from "../report/spinner";
 import os from "node:os";
 import nodePath from "node:path";
-import ora from "ora";
 import pc from "picocolors";
 import prompts from "prompts";
 import { log } from "../util/logger";
@@ -90,7 +90,7 @@ async function expandPath(input: string): Promise<string | null> {
 
 /** Interactive: search for a project and return its absolute path, or null if cancelled. */
 export async function pickProject(query?: string): Promise<string | null> {
-  const spinner = ora("Scanning for projects…").start();
+  const spinner = spin("Scanning for projects…").start();
   const projects = await findProjects(query);
   spinner.stop();
 
