@@ -13,6 +13,8 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import { STOPWORDS, type Selection } from "./selector";
+import { buildElementGraph } from "./semantic/graph";
+import type { ElementGraph, UIElement } from "./semantic/types";
 
 export const UI_FILE = /\.(html?|jsx|tsx)$/;
 export const STYLE_FILE = /\.(css|scss)$/;
@@ -108,21 +110,21 @@ export interface DuplicateFinding {
   instances: Instance[];
   crossFile: boolean; // occurrences span more than one file
   crossSection: boolean; // occurrences span more than one landmark (nav vs footer)
+  sharedComponent?: boolean; // all instances are the same React component → a definition edit hits all
+  inLoop?: boolean; // at least one instance is list-rendered → one source, many runtime instances
+}
+
+export interface ListTarget {
+  role: string;
+  instance: Instance;
 }
 
 export interface AmbiguityReport {
   duplicate: DuplicateFinding | null;
   styleUnderspecified: boolean; // restyle request with no concrete color/size/etc.
+  listTarget?: ListTarget | null; // destructive edit aimed at a list-rendered element
 }
 
-// Visible text between any two tags — the copy a user is likely to name. This
-// is deliberately tag-agnostic and spans lines, so it catches multi-line
-// elements and React components (`<Button>…</Button>`, `<CustomCTA>…`) alike,
-// not just single-line HTML. `{…}` is excluded so JSX expressions and CSS/JS
-// braces aren't captured as literal copy.
-const TEXT_NODE_RE = />([^<>{}]{2,80})</g;
-// Reject captures that look like code rather than visible copy.
-const CODEY_RE = /;|=>|\/\/|\breturn\b|\bfunction\b|\bconst\b/;
 const LANDMARK_RE = /<(nav|header|footer|main|aside|section|form|dialog|table)\b([^>]*)>/i;
 const STYLE_VALUE_RE =
   /#([0-9a-f]{3,8})\b|\b\d+(\.\d+)?\s?(px|rem|em|%|pt|vh|vw)\b|\b(red|blue|green|black|white|gray|grey|yellow|orange|purple|pink|teal|navy|dark|light|bold|italic|transparent)\b/i;
@@ -142,74 +144,102 @@ export async function readSelectionContents(selection: Selection, root: string):
 }
 
 export function detectAmbiguity(task: string, frame: IntentFrame, contents: Map<string, string>): AmbiguityReport {
+  const graph = buildElementGraph(contents); // parse once, share across detectors
   return {
-    duplicate: detectDuplicate(task, contents),
+    duplicate: duplicateFromGraph(graph, task, contents),
     styleUnderspecified: frame.action === "restyle" && !STYLE_VALUE_RE.test(frame.raw),
+    listTarget: frame.risk === "destructive" ? detectListTarget(graph, task) : null,
   };
+}
+
+/** A destructive action aimed at a list-rendered element affects every item. */
+function detectListTarget(graph: ElementGraph, task: string): ListTarget | null {
+  const words = [...new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w)))];
+  if (words.length === 0) return null;
+  for (const el of graph.elements) {
+    if (!el.inLoop) continue;
+    const hay = `${el.role} ${el.text} ${Object.values(el.attributes).join(" ")}`.toLowerCase();
+    if (words.some((w) => hay.includes(w))) return { role: el.role, instance: elementInstance(el) };
+  }
+  return null;
 }
 
 /**
  * Where does the task's *specific* target live, and does it resolve to more
- * than one place? Two ways in: a quoted phrase in the task, or repeated element
- * copy the task references by its words. 2–9 distinct locations (one =
+ * than one place? Runs over the semantic element graph (real AST/DOM), so it
+ * sees multi-line elements, React components, and list rendering — not just
+ * single-line text. Two ways in: a quoted phrase in the task, or repeated
+ * element copy the task references by its words. 2–9 distinct locations (one =
  * unambiguous, many = a global rename rather than a targeting question).
  */
 export function detectDuplicate(task: string, contents: Map<string, string>): DuplicateFinding | null {
+  return duplicateFromGraph(buildElementGraph(contents), task, contents);
+}
+
+function duplicateFromGraph(graph: ElementGraph, task: string, contents: Map<string, string>): DuplicateFinding | null {
   const quoted = [...task.matchAll(QUOTE_RE)].map((m) => m[1].trim()).filter(Boolean);
+
+  // 1. Quoted target — the strongest signal. Match structurally against element
+  //    text and attributes; fall back to a raw line scan so plain text and
+  //    attributes like aria-label/title/alt still resolve.
   for (const phrase of quoted) {
-    const instances = findPhraseLocations(phrase, contents);
-    if (instances.length >= 2 && instances.length <= 9) return finalizeFinding(phrase, instances);
+    const els = dedupeElements(elementsMatchingPhrase(graph, phrase));
+    if (els.length >= 2 && els.length <= 9) return finalizeFinding(phrase, els.map(elementInstance), els);
+    const raw = findPhraseLocations(phrase, contents);
+    if (raw.length >= 2 && raw.length <= 9) return finalizeFinding(phrase, raw);
   }
 
+  // 2. Repeated element copy the task references by its words.
   const taskWords = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
-  const groups = new Map<string, Instance[]>();
-  const display = new Map<string, string>();
-  for (const [file, content] of contents) {
-    if (!UI_FILE.test(file)) continue;
-    const lines = content.split("\n");
-    for (const node of textNodes(content)) {
-      const key = node.text.toLowerCase();
-      display.set(key, node.text);
-      const loc = makeInstance(file, node.line, node.text, enclosingLandmark(lines, node.line - 1));
-      const bucket = groups.get(key) ?? [];
-      if (!bucket.some((b) => b.value === loc.value)) bucket.push(loc);
-      groups.set(key, bucket);
-    }
+  const groups = new Map<string, UIElement[]>();
+  for (const el of graph.elements) {
+    if (!el.text) continue; // dynamic/empty text can't be named by copy
+    const key = el.text.toLowerCase();
+    groups.set(key, [...(groups.get(key) ?? []), el]);
   }
-  for (const [key, instances] of groups) {
-    if (instances.length < 2 || instances.length > 9) continue;
+  for (const [key, group] of groups) {
+    const els = dedupeElements(group);
+    if (els.length < 2 || els.length > 9) continue;
     const sig = key.split(/\s+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w));
     if (sig.length === 0) continue;
     const overlap = sig.filter((w) => taskWords.has(w)).length;
     // The task must actually reference this copy: at least two significant
     // words (or all, if fewer) and a majority present in the task.
     if (overlap < Math.min(2, sig.length) || overlap / sig.length < 0.5) continue;
-    return finalizeFinding(display.get(key) ?? key, instances);
+    return finalizeFinding(els[0].text, els.map(elementInstance), els);
   }
   return null;
 }
 
-function finalizeFinding(phrase: string, instances: Instance[]): DuplicateFinding {
-  const files = new Set(instances.map((i) => i.file));
-  const sections = new Set(instances.map((i) => i.landmark || `${i.file}:${i.line}`));
-  return { phrase, instances, crossFile: files.size > 1, crossSection: sections.size > 1 };
+function elementsMatchingPhrase(graph: ElementGraph, phrase: string): UIElement[] {
+  const needle = phrase.toLowerCase();
+  return graph.elements.filter(
+    (el) =>
+      el.text.toLowerCase().includes(needle) ||
+      Object.values(el.attributes).some((v) => v.toLowerCase().includes(needle)),
+  );
 }
 
-/** Visible text nodes in a file, tag-agnostic and multi-line, with 1-based line. */
-function textNodes(content: string): { line: number; text: string }[] {
-  const out: { line: number; text: string }[] = [];
-  for (const m of content.matchAll(TEXT_NODE_RE)) {
-    const text = m[1].replace(/\s+/g, " ").trim();
-    if (text.length < 2 || text.length > 60) continue;
-    if (!/[A-Za-z]/.test(text)) continue; // needs a letter — skip whitespace/punctuation runs
-    if (CODEY_RE.test(text)) continue; // looks like code, not visible copy
-    // Point at the first non-space char of the captured text (may be on a later
-    // line than the opening '>' for multi-line elements).
-    const lead = m[1].length - m[1].trimStart().length;
-    const idx = (m.index ?? 0) + 1 + lead;
-    out.push({ line: content.slice(0, idx).split("\n").length, text });
-  }
-  return out;
+function dedupeElements(els: UIElement[]): UIElement[] {
+  const seen = new Set<string>();
+  return els.filter((e) => (seen.has(e.key) ? false : (seen.add(e.key), true)));
+}
+
+const elementInstance = (el: UIElement): Instance => makeInstance(el.file, el.line, el.text, el.landmark);
+
+function finalizeFinding(phrase: string, instances: Instance[], els?: UIElement[]): DuplicateFinding {
+  const files = new Set(instances.map((i) => i.file));
+  const sections = new Set(instances.map((i) => i.landmark || `${i.file}:${i.line}`));
+  return {
+    phrase,
+    instances,
+    crossFile: files.size > 1,
+    crossSection: sections.size > 1,
+    // Blast-radius facts from the graph: the same component reused everywhere,
+    // or a list-rendered element (one source → many runtime instances).
+    sharedComponent: !!els && els.length >= 2 && els.every((e) => e.kind === "component") && new Set(els.map((e) => e.role)).size === 1,
+    inLoop: !!els && els.some((e) => e.inLoop),
+  };
 }
 
 function findPhraseLocations(phrase: string, contents: Map<string, string>): Instance[] {
@@ -305,15 +335,25 @@ export function classifyBand(frame: IntentFrame, selection: Selection, ambiguity
   const destructive = frame.risk === "destructive";
 
   if (ambiguity.duplicate) {
-    const { instances, crossFile, crossSection, phrase } = ambiguity.duplicate;
-    const broadImpact = crossFile || crossSection || instances.length >= 3;
+    const { instances, crossFile, crossSection, sharedComponent, inLoop, phrase } = ambiguity.duplicate;
+    const broadImpact = crossFile || crossSection || instances.length >= 3 || !!sharedComponent || !!inLoop;
     if (destructive && broadImpact) {
-      return {
-        band: "red",
-        reason: `“${phrase}” appears in ${instances.length} places (${sectionSummary(instances)}); a ${frame.action} would hit all of them`,
-      };
+      const why = inLoop
+        ? `“${phrase}” is list-rendered — a ${frame.action} would affect every item`
+        : sharedComponent
+          ? `“${phrase}” is the same component reused in ${instances.length} places (${sectionSummary(instances)}); a ${frame.action} to it would hit all of them`
+          : `“${phrase}” appears in ${instances.length} places (${sectionSummary(instances)}); a ${frame.action} would hit all of them`;
+      return { band: "red", reason: why };
     }
     return { band: "orange", reason: `“${phrase}” matches ${instances.length} targets (${sectionSummary(instances)})` };
+  }
+
+  if (destructive && ambiguity.listTarget) {
+    const t = ambiguity.listTarget;
+    return {
+      band: "red",
+      reason: `“${t.instance.text || t.role}” is rendered from a list — a ${frame.action} would remove every item, not one`,
+    };
   }
 
   if (ambiguity.styleUnderspecified && rankingIsConfident(selection)) {
