@@ -77,27 +77,59 @@ export function pathWithLocalBin(): string {
   return current.split(":").includes(local) ? current : `${local}:${current}`;
 }
 
-export async function runAgent(agent: AgentCliDef, root: string, prompt: string): Promise<void> {
-  return invoke(agent, root, agent.runArgs(prompt));
+export async function runAgent(
+  agent: AgentCliDef,
+  root: string,
+  prompt: string,
+  onFirstOutput?: () => void,
+): Promise<void> {
+  return invoke(agent, root, agent.runArgs(prompt), onFirstOutput);
 }
 
-export async function continueAgent(agent: AgentCliDef, root: string, prompt: string): Promise<void> {
-  return invoke(agent, root, agent.continueArgs(prompt));
+export async function continueAgent(
+  agent: AgentCliDef,
+  root: string,
+  prompt: string,
+  onFirstOutput?: () => void,
+): Promise<void> {
+  return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput);
 }
 
-async function invoke(agent: AgentCliDef, root: string, args: string[]): Promise<void> {
-  // Show the agent's output live (inherit stdout/stderr) so the user sees it
-  // working and can read any errors. Inherit stdin only in a real terminal —
-  // in a pipe/CI, feed EOF instead so an agent that checks stdin runs
-  // non-interactively rather than blocking forever.
+async function invoke(agent: AgentCliDef, root: string, args: string[], onFirstOutput?: () => void): Promise<void> {
+  // Relay the agent's output live rather than inheriting it. Every agent here
+  // runs headless/print mode (`claude -p`, `cursor-agent -p`, `codex exec`), so
+  // there's no interactive TUI to preserve — it's a text stream. Proxying it
+  // costs nothing visually (FORCE_COLOR keeps the colors) and buys one thing:
+  // we can see the *first* byte, which is what tells the caller the agent has
+  // stopped thinking and started talking — so a spinner can cover the dead air
+  // and get out of the way the moment real output arrives.
+  //
+  // stdin still inherits in a real terminal (an agent that checks stdin must
+  // not deadlock); in a pipe/CI it gets EOF instead.
   const stdinMode = process.stdin.isTTY ? "inherit" : "ignore";
-  const result = await execa(agent.bin, args, {
+  const child = execa(agent.bin, args, {
     cwd: root,
     reject: false,
     timeout: AGENT_TIMEOUT_MS,
-    stdio: [stdinMode, "inherit", "inherit"],
-    env: { ...process.env, PATH: pathWithLocalBin() },
+    buffer: false, // stream through; don't hold the whole transcript in memory
+    stdio: [stdinMode, "pipe", "pipe"],
+    env: { ...process.env, PATH: pathWithLocalBin(), FORCE_COLOR: "1" },
   });
+
+  let announced = false;
+  const relay = (from: NodeJS.ReadableStream | null | undefined, to: NodeJS.WritableStream): void => {
+    from?.on("data", (chunk: Buffer) => {
+      if (!announced) {
+        announced = true;
+        onFirstOutput?.();
+      }
+      to.write(chunk);
+    });
+  };
+  relay(child.stdout, process.stdout);
+  relay(child.stderr, process.stderr);
+
+  const result = await child;
   if (result.exitCode !== 0) {
     throw new Error(`${agent.bin} exited with code ${result.exitCode} (see its output above)`);
   }

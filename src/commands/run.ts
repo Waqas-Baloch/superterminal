@@ -550,13 +550,19 @@ async function runViaAgentCli(
 
   log.info("");
   log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
+  // The agent takes a while to boot and think before it says anything. Fill
+  // that dead air with the wave, and clear it the instant real output lands.
+  const wave = spin(pc.dim(`${agent.title} is thinking…`)).start();
   try {
     await runAgent(
       agent,
       root,
       `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.`,
+      () => wave.stop(),
     );
+    wave.stop(); // agent finished without ever printing
   } catch (err) {
+    wave.stop();
     log.error(err instanceof Error ? err.message : String(err));
     process.exitCode = 1;
     return null;
@@ -575,9 +581,12 @@ async function runViaAgentCli(
         break;
       }
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
+      const repairWave = spin(pc.dim(`${agent.title} is thinking…`)).start();
       try {
-        await continueAgent(agent, root, repairPrompt(failed));
+        await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop());
+        repairWave.stop();
       } catch (err) {
+        repairWave.stop();
         log.error(err instanceof Error ? err.message : String(err));
         validationFailed = true;
         break;

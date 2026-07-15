@@ -5,6 +5,8 @@ import os from "node:os";
 import { execa } from "execa";
 import {
   AGENT_CLIS,
+  runAgent,
+  type AgentCliDef,
   isGitRepo,
   hasHeadCommit,
   gitInit,
@@ -84,5 +86,48 @@ describe("git helpers", () => {
     expect(await gitBefore(fresh, "style.css")).toBe("body { margin: 0; }\n");
 
     await fs.rm(fresh, { recursive: true, force: true });
+  });
+});
+
+describe("live output relay", () => {
+  // Piping (instead of inheriting) the agent's stdio is what lets Glint show a
+  // spinner over the dead air and clear it the moment the agent speaks — but
+  // piping is also what once made Codex hang with no output. This pins the
+  // contract: output must stream through live, and the first byte must be
+  // signalled while the agent is still running.
+  const script = `
+    setTimeout(() => {
+      process.stdout.write("CHUNK-1\\n");
+      setTimeout(() => process.stdout.write("CHUNK-2\\n"), 150);
+      setTimeout(() => process.stdout.write("CHUNK-3\\n"), 300);
+    }, 300);
+  `;
+  const fake: AgentCliDef = { ...AGENT_CLIS["claude-code"], bin: "node", runArgs: () => ["-e", script] };
+
+  it("streams output live and signals the first byte mid-run", async () => {
+    const start = Date.now();
+    let firstOutputAt = -1;
+    const seen: number[] = [];
+
+    const write = process.stdout.write.bind(process.stdout);
+    (process.stdout as unknown as { write: unknown }).write = (chunk: unknown, ...rest: unknown[]) => {
+      if (String(chunk).includes("CHUNK-")) seen.push(Date.now() - start);
+      return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
+    };
+    try {
+      await runAgent(fake, process.cwd(), "ignored", () => {
+        firstOutputAt = Date.now() - start;
+      });
+    } finally {
+      (process.stdout as unknown as { write: unknown }).write = write;
+    }
+
+    const total = Date.now() - start;
+    // Fired while the agent was still running — that's the gap the wave covers.
+    expect(firstOutputAt).toBeGreaterThanOrEqual(250);
+    expect(firstOutputAt).toBeLessThan(total - 200);
+    // Streamed through rather than dumped at exit.
+    expect(seen).toHaveLength(3);
+    expect(seen[2] - seen[0]).toBeGreaterThan(200);
   });
 });
