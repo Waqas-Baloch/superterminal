@@ -43,3 +43,75 @@ export const glintSpinner = { interval: INTERVAL, frames: buildFrames() };
 export function spin(text: string): Ora {
   return ora({ text, spinner: glintSpinner });
 }
+
+// ── The pixel wave ──────────────────────────────────────────────────────────
+//
+// Same motion, but the dots are the wordmark's own pixel: `██`, exactly the
+// tittle of the `i` in the logo. A full block fills its cell, so it cannot move
+// inside one line — but the logo is a pixel grid drawn across rows, so the
+// animation is too. Half-blocks buy half-row resolution: a dot sitting between
+// rows renders as `▄▄` on the upper row and `▀▀` on the lower, which stack into
+// one full-height block straddling the boundary. Three rows → five positions.
+
+const PIXEL_ROWS = 3;
+const V_STEPS = 4; // 0..4 → five half-row positions
+
+function pixelFrame(t: number): string[] {
+  const rows: string[][] = Array.from({ length: PIXEL_ROWS }, () => Array.from({ length: DOTS }, () => "  "));
+  for (let i = 0; i < DOTS; i++) {
+    const y = Math.sin((2 * Math.PI * t) / FRAMES - i * PHASE);
+    const p = Math.round(((1 - y) / 2) * V_STEPS);
+    if (p % 2 === 0) {
+      rows[p / 2][i] = "██"; // sits on a row
+    } else {
+      rows[(p - 1) / 2][i] = "▄▄"; // straddles two rows
+      rows[(p + 1) / 2][i] = "▀▀";
+    }
+  }
+  return rows.map((r) => r.join(" "));
+}
+
+export interface Wave {
+  stop(): void;
+}
+
+/**
+ * A three-row wave of logo pixels, for the long wait while the agent thinks.
+ * Degrades to a single printed line when stdout isn't a terminal.
+ */
+export function pixelWave(label: string): Wave {
+  const out = process.stdout;
+  if (!out.isTTY) {
+    out.write(`${label}\n`);
+    return { stop: () => {} };
+  }
+
+  let t = 0;
+  let drawn = false;
+  const draw = (): void => {
+    const grid = pixelFrame(t++);
+    if (drawn) out.write(`\x1b[${PIXEL_ROWS}A`); // back to the top of the grid
+    drawn = true;
+    for (let r = 0; r < PIXEL_ROWS; r++) {
+      const tail = r === 1 ? `  ${pc.dim(label)}` : "";
+      out.write(`\x1b[2K  ${lime(grid[r])}${tail}\n`);
+    }
+  };
+
+  out.write("\x1b[?25l"); // hide cursor
+  draw();
+  const timer = setInterval(draw, INTERVAL);
+  timer.unref?.(); // never hold the process open on our account
+
+  let stopped = false;
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      out.write(`\x1b[${PIXEL_ROWS}A`);
+      for (let r = 0; r < PIXEL_ROWS; r++) out.write("\x1b[2K\n"); // wipe the grid
+      out.write(`\x1b[${PIXEL_ROWS}A\x1b[?25h`); // rewind, show cursor
+    },
+  };
+}

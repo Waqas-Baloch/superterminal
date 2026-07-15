@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { spin } from "../report/spinner";
+import { spin, pixelWave } from "../report/spinner";
 import nodePath from "node:path";
 import pc from "picocolors";
 import prompts from "prompts";
@@ -552,7 +552,7 @@ async function runViaAgentCli(
   log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
   // The agent takes a while to boot and think before it says anything. Fill
   // that dead air with the wave, and clear it the instant real output lands.
-  const wave = spin(pc.dim(`${agent.title} is thinking…`)).start();
+  const wave = pixelWave(`${agent.title} is thinking…`);
   try {
     await runAgent(
       agent,
@@ -581,7 +581,7 @@ async function runViaAgentCli(
         break;
       }
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
-      const repairWave = spin(pc.dim(`${agent.title} is thinking…`)).start();
+      const repairWave = pixelWave(`${agent.title} is thinking…`);
       try {
         await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop());
         repairWave.stop();
