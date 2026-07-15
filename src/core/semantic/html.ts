@@ -10,7 +10,7 @@ interface P5Node {
   value?: string;
   attrs?: { name: string; value: string }[];
   childNodes?: P5Node[];
-  sourceCodeLocation?: { startLine: number; endLine: number } | null;
+  sourceCodeLocation?: { startLine: number; endLine: number; startCol: number } | null;
 }
 
 /** Parse an HTML file into UI elements with real ancestry, landmark, and lines. */
@@ -48,7 +48,7 @@ function walk(node: P5Node, ancestry: { role: string; id?: string }[], out: UIEl
       landmark: landmarkFrom(ancestry),
       ancestry: ancestry.map((a) => a.role),
       inLoop: false,
-      key: `${file}:${line}`,
+      key: `${file}:${line}:${child.sourceCodeLocation?.startCol ?? 0}`, // col disambiguates same-line elements
     });
 
     walk(child, [...ancestry, { role, id: id || undefined }], out, file);

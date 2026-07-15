@@ -132,6 +132,18 @@ describe("duplicate detector", () => {
     );
   });
 
+  it("restricts to the page the task names, ignoring the same copy elsewhere", () => {
+    const files = new Map([
+      ["index.html", '<header><button>Try Now</button></header><footer id="support"><button>Try Now</button></footer>'],
+      ["refund.html", "<header><button>Try Now</button></header>"],
+      ["terms.html", "<header><button>Try Now</button></header>"],
+    ]);
+    const dup = detectDuplicate("remove Try Now from index page", files);
+    expect(dup).not.toBeNull();
+    expect(dup!.instances).toHaveLength(2); // only the two on index.html
+    expect(dup!.instances.every((i) => i.file === "index.html")).toBe(true);
+  });
+
   it("ignores code that merely looks like text between tags", () => {
     // `>…<` inside expressions shouldn't be treated as visible duplicate copy.
     const jsx = `<div>\n  {items.map((i) => (\n    <span>{i.label}</span>\n  ))}\n</div>\n<p>a > b and c < d</p>`;

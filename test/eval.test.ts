@@ -20,6 +20,7 @@ interface EvalCase {
   request: string;
   band: Band; // gold band
   targets?: string[]; // gold target landmarks and/or files the edit should resolve to
+  excludes?: string[]; // locations/files that must NOT be offered (e.g. other pages)
 }
 
 const html = (body: string) => `<!doctype html><html><body>\n${body}\n</body></html>`;
@@ -101,6 +102,20 @@ const CASES: EvalCase[] = [
     },
     request: "remove Sign up",
     band: "red",
+  },
+  {
+    name: "task scoped to a named page — ignore the same copy on other pages",
+    files: {
+      "index.html": html(
+        '  <header><button>Try Now</button></header>\n  <footer id="support"><button>Try Now</button></footer>',
+      ),
+      "refund.html": html("  <header><button>Try Now</button></header>"),
+      "terms.html": html("  <header><button>Try Now</button></header>"),
+    },
+    request: "remove Try Now from index page",
+    band: "red",
+    targets: ["index.html"],
+    excludes: ["refund.html", "terms.html"],
   },
   {
     name: "duplicate copy, non-destructive rename → ask, don't block",
@@ -222,6 +237,12 @@ describe("understanding evaluation harness", () => {
       for (const t of c.targets) {
         const hit = [...detected].some((d) => d === t || d.endsWith(`/${t}`) || d === t.split("/").pop());
         if (!hit) failures.push(`${c.name}: missing target "${t}" (resolved: ${[...detected].join(", ") || "none"})`);
+      }
+    }
+    if (c.excludes) {
+      for (const x of c.excludes) {
+        const hit = [...detected].some((d) => d === x || d.endsWith(`/${x}`) || d === x.split("/").pop());
+        if (hit) failures.push(`${c.name}: should NOT offer "${x}" (resolved: ${[...detected].join(", ")})`);
       }
     }
   }

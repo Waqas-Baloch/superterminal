@@ -88,7 +88,7 @@ function fromElement(
     landmark: landmarkFrom(ancestry),
     ancestry: ancestry.map((a) => a.role),
     inLoop: isInLoop(node),
-    key: `${file}:${line}`,
+    key: `${file}:${line}:${node.getStart()}`, // offset disambiguates same-line elements
   };
 }
 

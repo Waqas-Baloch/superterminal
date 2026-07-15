@@ -145,19 +145,44 @@ export async function readSelectionContents(selection: Selection, root: string):
 
 export function detectAmbiguity(task: string, frame: IntentFrame, contents: Map<string, string>): AmbiguityReport {
   const graph = buildElementGraph(contents); // parse once, share across detectors
+  const scope = scopeFiles(task, [...contents.keys()]);
   return {
-    duplicate: duplicateFromGraph(graph, task, contents),
+    duplicate: duplicateFromGraph(graph, task, contents, scope),
     styleUnderspecified: frame.action === "restyle" && !STYLE_VALUE_RE.test(frame.raw),
-    listTarget: frame.risk === "destructive" ? detectListTarget(graph, task) : null,
+    listTarget: frame.risk === "destructive" ? detectListTarget(graph, task, scope) : null,
   };
 }
 
+/**
+ * Files the task explicitly scopes to by page/file name — e.g. "…from the index
+ * page" or "…in checkout.tsx". When present, detection is restricted to these
+ * files so occurrences on other pages aren't offered as targets. Returns null
+ * when the task names no file (don't over-filter).
+ */
+function scopeFiles(task: string, files: string[]): Set<string> | null {
+  const words = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const matched = new Set<string>();
+  for (const f of files) {
+    const base = nodePath.basename(f).toLowerCase(); // e.g. index.html
+    const stem = base.replace(/\.[^.]+$/, ""); // e.g. index
+    const aliases = new Set([base, stem]);
+    // "home"/"homepage"/"landing" all point at the index / page entry file.
+    if (stem === "index" || stem === "page") for (const a of ["home", "homepage", "landing", "index"]) aliases.add(a);
+    if ([...aliases].some((a) => a.length >= 3 && words.has(a))) matched.add(f);
+  }
+  return matched.size > 0 ? matched : null;
+}
+
+function inScope(file: string, scope: Set<string> | null): boolean {
+  return !scope || scope.has(file);
+}
+
 /** A destructive action aimed at a list-rendered element affects every item. */
-function detectListTarget(graph: ElementGraph, task: string): ListTarget | null {
+function detectListTarget(graph: ElementGraph, task: string, scope: Set<string> | null): ListTarget | null {
   const words = [...new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOPWORDS.has(w)))];
   if (words.length === 0) return null;
   for (const el of graph.elements) {
-    if (!el.inLoop) continue;
+    if (!el.inLoop || !inScope(el.file, scope)) continue;
     const hay = `${el.role} ${el.text} ${Object.values(el.attributes).join(" ")}`.toLowerCase();
     if (words.some((w) => hay.includes(w))) return { role: el.role, instance: elementInstance(el) };
   }
@@ -173,26 +198,35 @@ function detectListTarget(graph: ElementGraph, task: string): ListTarget | null 
  * unambiguous, many = a global rename rather than a targeting question).
  */
 export function detectDuplicate(task: string, contents: Map<string, string>): DuplicateFinding | null {
-  return duplicateFromGraph(buildElementGraph(contents), task, contents);
+  return duplicateFromGraph(buildElementGraph(contents), task, contents, scopeFiles(task, [...contents.keys()]));
 }
 
-function duplicateFromGraph(graph: ElementGraph, task: string, contents: Map<string, string>): DuplicateFinding | null {
+function duplicateFromGraph(
+  graph: ElementGraph,
+  task: string,
+  contents: Map<string, string>,
+  scope: Set<string> | null,
+): DuplicateFinding | null {
+  // Honor a page/file the task named: only consider elements on that page, so
+  // the same copy on other pages isn't offered as a target.
+  const elements = graph.elements.filter((e) => inScope(e.file, scope));
+  const scopedContents = scope ? new Map([...contents].filter(([f]) => scope.has(f))) : contents;
   const quoted = [...task.matchAll(QUOTE_RE)].map((m) => m[1].trim()).filter(Boolean);
 
   // 1. Quoted target — the strongest signal. Match structurally against element
   //    text and attributes; fall back to a raw line scan so plain text and
   //    attributes like aria-label/title/alt still resolve.
   for (const phrase of quoted) {
-    const els = dedupeElements(elementsMatchingPhrase(graph, phrase));
+    const els = dedupeElements(elementsMatchingPhrase(elements, phrase));
     if (els.length >= 2 && els.length <= 9) return finalizeFinding(phrase, els.map(elementInstance), els);
-    const raw = findPhraseLocations(phrase, contents);
+    const raw = findPhraseLocations(phrase, scopedContents);
     if (raw.length >= 2 && raw.length <= 9) return finalizeFinding(phrase, raw);
   }
 
   // 2. Repeated element copy the task references by its words.
   const taskWords = new Set(task.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
   const groups = new Map<string, UIElement[]>();
-  for (const el of graph.elements) {
+  for (const el of elements) {
     if (!el.text) continue; // dynamic/empty text can't be named by copy
     const key = el.text.toLowerCase();
     groups.set(key, [...(groups.get(key) ?? []), el]);
@@ -211,9 +245,9 @@ function duplicateFromGraph(graph: ElementGraph, task: string, contents: Map<str
   return null;
 }
 
-function elementsMatchingPhrase(graph: ElementGraph, phrase: string): UIElement[] {
+function elementsMatchingPhrase(elements: UIElement[], phrase: string): UIElement[] {
   const needle = phrase.toLowerCase();
-  return graph.elements.filter(
+  return elements.filter(
     (el) =>
       el.text.toLowerCase().includes(needle) ||
       Object.values(el.attributes).some((v) => v.toLowerCase().includes(needle)),
