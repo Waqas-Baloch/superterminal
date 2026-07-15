@@ -143,6 +143,33 @@ export async function readSelectionContents(selection: Selection, root: string):
   return contents;
 }
 
+/**
+ * Post-edit scope enforcement: given the occurrences the user said to KEEP,
+ * report any that no longer exist. Re-parses the files after the agent ran and
+ * matches by landmark + text (not line), so it survives the agent shifting
+ * lines or reformatting — but catches it deleting/altering a copy it was told
+ * to leave alone. This is what turns "the agent obeyed" into "Glint verified".
+ */
+export async function findMissingKeeps(root: string, keep: Instance[]): Promise<Instance[]> {
+  if (keep.length === 0) return [];
+  const contents = new Map<string, string>();
+  for (const file of new Set(keep.map((k) => k.file))) {
+    contents.set(file, await fs.readFile(nodePath.join(root, file), "utf8").catch(() => ""));
+  }
+  const graph = buildElementGraph(contents);
+  return keep.filter((k) => {
+    // Instance text may be display-truncated ("…"); compare as a prefix.
+    const norm = k.text.replace(/…$/, "").trim().toLowerCase();
+    if (!norm) return false;
+    if (k.landmark) {
+      return !graph.elements.some(
+        (e) => e.file === k.file && e.landmark === k.landmark && e.text.trim().toLowerCase().startsWith(norm),
+      );
+    }
+    return !(contents.get(k.file) ?? "").toLowerCase().includes(norm);
+  });
+}
+
 export function detectAmbiguity(task: string, frame: IntentFrame, contents: Map<string, string>): AmbiguityReport {
   const graph = buildElementGraph(contents); // parse once, share across detectors
   const scope = scopeFiles(task, [...contents.keys()]);

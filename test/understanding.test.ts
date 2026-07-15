@@ -7,6 +7,7 @@ import {
   classifyBand,
   detectAmbiguity,
   detectDuplicate,
+  findMissingKeeps,
   readSelectionContents,
   resolutionConfidence,
   sectionSummary,
@@ -164,6 +165,50 @@ describe("duplicate detector", () => {
     expect(detectAmbiguity("make the button nicer", buildIntentFrame("make the button nicer"), contents).styleUnderspecified).toBe(true);
     expect(detectAmbiguity("make the button red", buildIntentFrame("make the button red"), contents).styleUnderspecified).toBe(false);
     expect(detectAmbiguity("remove the button", buildIntentFrame("remove the button"), contents).styleUnderspecified).toBe(false);
+  });
+});
+
+describe("post-edit scope enforcement — verifying the agent honored the choice", () => {
+  let dir: string;
+  const NAV = '  <nav>\n    <button class="cta">Try Now</button>\n  </nav>';
+  const FOOTER = '  <footer id="support">\n    <button class="cta">Try Now</button>\n  </footer>';
+  const page = (...parts: string[]) => `<!doctype html><html><body>\n${parts.join("\n")}\n</body></html>`;
+  // The user chose "change the nav one" → the footer copy must survive.
+  const keepFooter = [fakeInstance("index.html", 8, "footer#support", "Try Now")];
+
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-scope-enforce-"));
+  });
+  afterAll(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("passes when the agent removed only the authorized (nav) occurrence", async () => {
+    await fs.writeFile(path.join(dir, "index.html"), page("  <main><h1>Hi</h1></main>", FOOTER));
+    expect(await findMissingKeeps(dir, keepFooter)).toEqual([]);
+  });
+
+  it("catches the agent removing BOTH identical buttons (the real bug)", async () => {
+    await fs.writeFile(path.join(dir, "index.html"), page("  <main><h1>Hi</h1></main>"));
+    const missing = await findMissingKeeps(dir, keepFooter);
+    expect(missing).toHaveLength(1);
+    expect(missing[0].landmark).toBe("footer#support");
+  });
+
+  it("catches the kept copy being reworded instead of left alone", async () => {
+    await fs.writeFile(
+      path.join(dir, "index.html"),
+      page('  <footer id="support">\n    <button class="cta">Get Started</button>\n  </footer>'),
+    );
+    expect(await findMissingKeeps(dir, keepFooter)).toHaveLength(1);
+  });
+
+  it("tolerates line shifts and reformatting of the kept element (no false alarm)", async () => {
+    await fs.writeFile(
+      path.join(dir, "index.html"),
+      page("  <section>added</section>", "  <section>more</section>", NAV.replace(/Try Now/, "Other"), FOOTER),
+    );
+    expect(await findMissingKeeps(dir, keepFooter)).toEqual([]);
   });
 });
 

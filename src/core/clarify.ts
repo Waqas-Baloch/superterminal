@@ -26,6 +26,23 @@ export interface ClarifyQuestion {
   message: string;
   choices: { title: string; value: string }[];
   refine: (answer: string[]) => string | null;
+  /** Machine-readable edit scope, so Glint can verify the agent honored it. */
+  scopeFor?: (answer: string[]) => EditScope | null;
+}
+
+/**
+ * What the user actually authorized: the occurrences to change, and the ones
+ * that must survive untouched. Prose tells the agent; this lets Glint check.
+ */
+export interface EditScope {
+  phrase: string;
+  change: Instance[];
+  keep: Instance[];
+}
+
+export interface ClarifyResult {
+  refinements: string[];
+  scope: EditScope | null;
 }
 
 export interface TaskAssessment {
@@ -192,6 +209,13 @@ function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQu
         `surrounding context in the edit to match exactly one element and leave the other copies unchanged.`
       );
     },
+    scopeFor: (answer) => {
+      if (!answer || answer.length === 0 || answer.includes("__all__")) return null; // nothing to protect
+      const change = dup.instances.filter((i) => answer.includes(i.value));
+      const keep = dup.instances.filter((i) => !answer.includes(i.value));
+      if (change.length === 0 || keep.length === 0) return null;
+      return { phrase: dup.phrase, change, keep };
+    },
   };
 }
 
@@ -221,9 +245,10 @@ function styleContinuationNote(): string {
  * Ask a set of prepared questions and return the refinement sentences. Ctrl-C
  * or an empty answer stops gracefully, keeping whatever was answered so far.
  */
-export async function runQuestions(questions: ClarifyQuestion[]): Promise<string[]> {
+export async function runQuestions(questions: ClarifyQuestion[]): Promise<ClarifyResult> {
   const refinements: string[] = [];
-  if (questions.length === 0) return refinements;
+  let scope: EditScope | null = null;
+  if (questions.length === 0) return { refinements, scope };
 
   log.info("");
   log.dim("Quick check to target the change precisely (space = select, enter = confirm):");
@@ -235,14 +260,16 @@ export async function runQuestions(questions: ClarifyQuestion[]): Promise<string
       choices: q.choices,
       instructions: false,
     });
-    if (answer[q.key] === undefined) return refinements; // cancelled — use what we have
-    const line = q.refine(answer[q.key] as string[]);
+    if (answer[q.key] === undefined) return { refinements, scope }; // cancelled — use what we have
+    const picked = answer[q.key] as string[];
+    const line = q.refine(picked);
     if (line) {
       refinements.push(line);
       log.dim("  ✓ noted");
     }
+    scope = q.scopeFor?.(picked) ?? scope;
   }
-  return refinements;
+  return { refinements, scope };
 }
 
 export function compileTask(task: string, refinements: string[]): string {

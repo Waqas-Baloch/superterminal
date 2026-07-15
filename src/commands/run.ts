@@ -7,7 +7,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { indexRepo, type RepoIndex } from "../core/indexer";
 import { buildGraph } from "../core/mapper";
 import { selectFiles, fullSelection } from "../core/selector";
-import { assessTask, runQuestions, compileTask } from "../core/clarify";
+import { assessTask, runQuestions, compileTask, type EditScope } from "../core/clarify";
+import { findMissingKeeps, type Instance } from "../core/understanding";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -246,6 +247,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   let finalTask = task;
   let manifest: string;
   let repoTokens = 0;
+  let editScope: EditScope | null = null; // occurrences the user authorized / told us to keep
   const scaffold = index.files.length === 0;
 
   if (scaffold) {
@@ -301,7 +303,12 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     // Orange/Red (interactive): ask the focused question(s). Answers change the
     // targeting, so re-select. Yellow: no question — just tell the agent to
     // continue the existing design (doesn't change which files we pick).
-    const answered = interactive && assessment.questions.length > 0 ? await runQuestions(assessment.questions) : [];
+    const asked =
+      interactive && assessment.questions.length > 0
+        ? await runQuestions(assessment.questions)
+        : { refinements: [], scope: null };
+    const answered = asked.refinements;
+    editScope = asked.scope; // remembered so we can verify the agent honored it
     const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;
     if (refinements.length > 0) finalTask = compileTask(task, refinements);
     if (answered.length > 0) {
@@ -374,10 +381,35 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       ? await runViaAgentCli(root, manifest, opts, AGENT_CLIS[auth.agent], index, config)
       : await runViaApi(root, manifest, model, auth, index, opts);
 
+  // Post-edit scope enforcement. You told us which occurrence to change and
+  // which identical copies to leave alone — trust the agent, but verify. An
+  // agent can still find-and-replace its way through a copy it was told to
+  // keep, and that's exactly the failure the clarification exists to prevent.
+  if (outcome && editScope) {
+    const missing = await findMissingKeeps(root, editScope.keep);
+    if (missing.length > 0) printScopeViolation(editScope, missing);
+  }
+
   if (outcome) {
     if (!scaffold && repoTokens > 0) printSavings(manifestTokens, repoTokens);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
   }
+}
+
+/** The agent edited past what the user authorized — say so loudly. */
+function printScopeViolation(scope: EditScope, missing: Instance[]): void {
+  log.info("");
+  log.warn(
+    `Scope violation — ${missing.length} occurrence${missing.length === 1 ? "" : "s"} you asked to keep ${
+      missing.length === 1 ? "was" : "were"
+    } also changed:`,
+  );
+  for (const m of missing) {
+    const where = m.landmark ? ` inside <${m.landmark}>` : "";
+    log.warn(`  • "${scope.phrase}"${where} (${m.file} line ${m.line}) is no longer there`);
+  }
+  log.dim("The agent went beyond what you authorized. Undo everything with `glint revert`, then retry naming the target explicitly.");
+  process.exitCode = 1;
 }
 
 /** The product's pitch, printed after every run: what was sent vs what exists. */
