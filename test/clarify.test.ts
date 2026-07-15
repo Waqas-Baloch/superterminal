@@ -160,11 +160,13 @@ describe("duplicate-target detection — the same copy in several places", () =>
     )!;
     const navValue = q.choices.find((c) => c.title.includes("nav"))!.value;
 
-    const scoped = q.refine([navValue]);
-    expect(scoped).toContain(navValue);
-    expect(scoped).toContain("Leave every other occurrence");
+    const scoped = q.refine([navValue])!;
+    expect(scoped).toContain("<nav>"); // targets the nav one by structural anchor
+    expect(scoped.toLowerCase()).toContain("identical"); // warns the copies are identical
+    expect(scoped).toContain("Do NOT touch"); // protects the other occurrence(s)
+    expect(scoped).toContain("footer"); // names the footer copy as the one to keep
 
-    expect(q.refine(["__all__"])).toContain("all 2 occurrences");
+    expect(q.refine(["__all__"])).toContain("all 2");
     expect(q.refine([])).toBeNull();
   });
 

@@ -14,6 +14,7 @@ import {
   type AmbiguityReport,
   type Band,
   type DuplicateFinding,
+  type Instance,
   type IntentFrame,
 } from "./understanding";
 
@@ -173,12 +174,40 @@ function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQu
     ],
     refine: (answer) => {
       if (!answer || answer.length === 0) return null;
-      if (answer.includes("__all__")) return `Apply the change to all ${dup.instances.length} occurrences of "${dup.phrase}".`;
-      const picked = answer.filter((a) => a !== "__all__");
+      const n = dup.instances.length;
+      if (answer.includes("__all__")) return `Apply the change to all ${n} identical "${dup.phrase}" occurrences.`;
+      const picked = dup.instances.filter((i) => answer.includes(i.value));
       if (picked.length === 0) return null;
-      return `Apply the change ONLY at ${picked.join(" and ")} (the "${dup.phrase}" there). Leave every other occurrence of "${dup.phrase}" unchanged.`;
+      const keep = dup.instances.filter((i) => !answer.includes(i.value));
+      const targets = picked.map((i) => describeInstance(i, dup.phrase)).join(" and ");
+      const keeps = keep.map((i) => describeInstance(i, dup.phrase)).join(", ");
+      // The instances are identical copy, so a plain str_replace / find-replace
+      // matches ALL of them. Tell the agent to disambiguate by surrounding
+      // structure and expand the edit to target exactly the chosen one.
+      return (
+        `There are ${n} identical "${dup.phrase}" elements. Change ONLY ${targets}. ` +
+        (keep.length ? `Do NOT touch ${keeps}. ` : "") +
+        `Because the elements are byte-for-byte identical, a plain find-and-replace would hit all of them — ` +
+        `locate the target by its surrounding markup (its enclosing element shown above) and include enough of that ` +
+        `surrounding context in the edit to match exactly one element and leave the other copies unchanged.`
+      );
     },
   };
+}
+
+/** Point the agent at one of several identical elements by its structural anchor. */
+function describeInstance(i: Instance, phrase: string): string {
+  return i.landmark
+    ? `the "${phrase}" inside ${landmarkTag(i.landmark)} (${i.file} line ${i.line})`
+    : `the "${phrase}" at ${i.file} line ${i.line}`;
+}
+
+function landmarkTag(landmark: string): string {
+  if (landmark.includes("#")) {
+    const [tag, id] = landmark.split("#");
+    return `<${tag} id="${id}">`;
+  }
+  return `<${landmark}>`;
 }
 
 function styleContinuationNote(): string {

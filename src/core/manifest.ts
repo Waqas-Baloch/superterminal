@@ -40,6 +40,7 @@ Do exactly what the task asks — no more, no less — and follow its wording li
 - "remove" / "delete" / "get rid of" means take that element or code out **entirely** — do not replace its text, rename it, or rewrite it into something else.
 - "rename" / "change the text" / "reword" means edit only that text, not restructure the element.
 - Do not add, restyle, rename, or "improve" anything the task did not explicitly ask for, even if a nearby pattern looks inconsistent.
+- If the task targets a **specific occurrence** (e.g. "only the one inside the navbar"), change that one alone. When several elements are byte-for-byte identical, a plain find-and-replace hits all of them — match by surrounding structure (the enclosing element/section) and expand the edit to include enough context to touch exactly the specified occurrence, leaving the others untouched.
 Make the smallest change that *fully and literally* satisfies the request.`;
 
 export async function generateManifest(opts: {
