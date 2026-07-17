@@ -168,6 +168,45 @@ describe("duplicate detector", () => {
   });
 });
 
+describe("impact axis — 'I know which one' is not 'this is safe'", () => {
+  function repo(callers: number): Record<string, string> {
+    const files: Record<string, string> = {
+      "src/util/format.ts": "export function formatDate(d: Date) {\n  return d.toISOString();\n}\n",
+    };
+    for (let i = 1; i <= callers; i++) {
+      files[`src/mod${i}.ts`] = `import { formatDate } from "./util/format";\nexport const s${i} = (d: Date) => formatDate(d);\n`;
+    }
+    return files;
+  }
+  const band = (files: Record<string, string>, task: string) => {
+    const contents = new Map(Object.entries(files));
+    const frame = buildIntentFrame(task);
+    return classifyBand(frame, selectionWith([{ path: "src/util/format.ts", score: 0.9 }], 1), detectAmbiguity(task, frame, contents));
+  };
+
+  it("blocks a destructive edit to a widely-used exported symbol (severe → red)", () => {
+    const d = band(repo(8), "remove the formatDate function");
+    expect(d.band).toBe("red");
+    expect(d.reason).toContain("break");
+    expect(d.reason).toContain("formatDate");
+  });
+
+  it("warns on a symbol with a few external callers (medium → orange)", () => {
+    const d = band(repo(2), "remove the formatDate function");
+    expect(d.band).toBe("orange");
+  });
+
+  it("stays green when the symbol is used nowhere else (nothing to break)", () => {
+    const d = band({ "src/x.ts": "export function loneHelper() { return 1; }\n" }, "remove the loneHelper function");
+    expect(d.band).toBe("green");
+  });
+
+  it("does not escalate a non-destructive edit — renaming updates callers safely", () => {
+    const d = band(repo(8), "rename formatDate to formatTimestamp");
+    expect(d.band).toBe("green");
+  });
+});
+
 describe("post-edit scope enforcement — verifying the agent honored the choice", () => {
   let dir: string;
   const NAV = '  <nav>\n    <button class="cta">Try Now</button>\n  </nav>';

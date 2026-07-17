@@ -55,7 +55,8 @@ export interface SymbolNode {
   file: string;
   line: number;
   exported: boolean;
-  refs: number;
+  refs: number; // total references across scanned files (excluding declarations)
+  refFiles: string[]; // other files that reference this name — the blast radius
   container: string; // enclosing class/function, for display
   key: string;
 }

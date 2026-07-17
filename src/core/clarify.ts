@@ -6,6 +6,7 @@ import {
   buildIntentFrame,
   classifyBand,
   detectAmbiguity,
+  impactSeverity,
   rankingIsConfident,
   readSelectionContents,
   sectionSummary,
@@ -14,6 +15,7 @@ import {
   type AmbiguityReport,
   type Band,
   type DuplicateFinding,
+  type Impact,
   type Instance,
   type IntentFrame,
 } from "./understanding";
@@ -28,6 +30,8 @@ export interface ClarifyQuestion {
   refine: (answer: string[]) => string | null;
   /** Machine-readable edit scope, so Glint can verify the agent honored it. */
   scopeFor?: (answer: string[]) => EditScope | null;
+  /** Single-choice (a confirmation), not a multi-select target list. */
+  single?: boolean;
 }
 
 /**
@@ -43,6 +47,7 @@ export interface EditScope {
 export interface ClarifyResult {
   refinements: string[];
   scope: EditScope | null;
+  cancelled: boolean; // the user chose to abort (e.g. declined a risky impact)
 }
 
 export interface TaskAssessment {
@@ -116,6 +121,14 @@ function composeQuestions(
   contents: Map<string, string>,
 ): ClarifyQuestion[] {
   const questions: ClarifyQuestion[] = [];
+
+  // 0. Impact confirmation: the target is unambiguous, but a destructive edit
+  // to it would break other code. Not a "which one?" — a "this breaks N things,
+  // proceed?". Fires ahead of everything else.
+  if (frame.risk === "destructive" && ambiguity.impact && impactSeverity(ambiguity.impact) !== "low") {
+    questions.push(impactQuestion(frame, ambiguity.impact));
+    return questions; // the target is already known; nothing else to ask
+  }
 
   // 1. Duplicate visible target: the exact copy the user named appears in
   // several places (a button in the nav AND one in the footer). This is the
@@ -231,6 +244,39 @@ function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQu
   };
 }
 
+// "This breaks N things — proceed?" The target is known; the question is
+// whether the user accepts the blast radius (and whether the callers should be
+// fixed too). "__cancel__" aborts the run.
+function impactQuestion(frame: IntentFrame, impact: Impact): ClarifyQuestion {
+  const where = impact.files.length ? ` across ${impact.files.length} other file${impact.files.length === 1 ? "" : "s"}` : "";
+  const sample = impact.files.slice(0, 4).join(", ") + (impact.files.length > 4 ? ", …" : "");
+  return {
+    key: "impact_confirm",
+    single: true,
+    message: `${impact.target} is used in ${impact.refs} place${impact.refs === 1 ? "" : "s"}${where}${
+      sample ? ` (${sample})` : ""
+    }. A ${frame.action} will break them. Proceed?`,
+    choices: [
+      { title: `${frame.action} it AND update all call sites`, value: "__update__" },
+      { title: `${frame.action} it only (I'll fix the callers)`, value: "__proceed__" },
+      { title: "Cancel — leave it alone", value: "__cancel__" },
+    ],
+    refine: (answer) => {
+      if (!answer || answer.length === 0 || answer.includes("__cancel__")) return null;
+      if (answer.includes("__update__")) {
+        return `${cap(frame.action)} ${impact.target} AND update every one of its ${impact.refs} call site${
+          impact.refs === 1 ? "" : "s"
+        }${impact.files.length ? ` (in ${impact.files.join(", ")})` : ""} so nothing is left broken.`;
+      }
+      return `${cap(frame.action)} ${impact.target} as asked. It is used in ${impact.refs} place${
+        impact.refs === 1 ? "" : "s"
+      } — this is intentional; leave updating those call sites to me.`;
+    },
+  };
+}
+
+const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+
 /** Point the agent at one of several identical elements by its structural anchor. */
 function describeInstance(i: Instance, phrase: string): string {
   return i.landmark
@@ -260,20 +306,22 @@ function styleContinuationNote(): string {
 export async function runQuestions(questions: ClarifyQuestion[]): Promise<ClarifyResult> {
   const refinements: string[] = [];
   let scope: EditScope | null = null;
-  if (questions.length === 0) return { refinements, scope };
+  if (questions.length === 0) return { refinements, scope, cancelled: false };
 
   log.info("");
   log.dim("Quick check to target the change precisely (space = select, enter = confirm):");
   for (const q of questions) {
     const answer = await prompts({
-      type: "multiselect",
+      type: q.single ? "select" : "multiselect",
       name: q.key,
       message: q.message,
       choices: q.choices,
       instructions: false,
     });
-    if (answer[q.key] === undefined) return { refinements, scope }; // cancelled — use what we have
-    const picked = answer[q.key] as string[];
+    if (answer[q.key] === undefined) return { refinements, scope, cancelled: false }; // Ctrl-C — use what we have
+    // Normalize select (single value) and multiselect (array) to one shape.
+    const picked = q.single ? [answer[q.key] as string] : (answer[q.key] as string[]);
+    if (picked.includes("__cancel__")) return { refinements, scope, cancelled: true };
     const line = q.refine(picked);
     if (line) {
       refinements.push(line);
@@ -281,7 +329,7 @@ export async function runQuestions(questions: ClarifyQuestion[]): Promise<Clarif
     }
     scope = q.scopeFor?.(picked) ?? scope;
   }
-  return { refinements, scope };
+  return { refinements, scope, cancelled: false };
 }
 
 export function compileTask(task: string, refinements: string[]): string {

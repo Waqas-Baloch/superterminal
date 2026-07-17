@@ -127,11 +127,27 @@ export interface AmbiguityReport {
   resolvedTarget?: Instance | null;
   /** The task named a page/file, so the edit target's file is already known. */
   scoped?: boolean;
+  /** Blast radius of the resolved target: how much a destructive edit would break. */
+  impact?: Impact | null;
+}
+
+/**
+ * How load-bearing the resolved target is — the "is this safe?" axis, separate
+ * from "do I know which one?". Deleting a symbol used in 16 places is dangerous
+ * even when it's perfectly unambiguous.
+ */
+export interface Impact {
+  target: string; // the symbol's name
+  kind: string; // function / class / type …
+  refs: number; // total references (indicative, name-based — not type-resolved)
+  files: string[]; // other files that reference it — the things that break
+  exported: boolean; // part of the module's public surface
 }
 
 export interface TargetAnalysis {
   duplicate: DuplicateFinding | null;
   resolvedTarget: Instance | null;
+  impact: Impact | null;
 }
 
 const LANDMARK_RE = /<(nav|header|footer|main|aside|section|form|dialog|table)\b([^>]*)>/i;
@@ -182,10 +198,11 @@ export async function findMissingKeeps(root: string, keep: Instance[]): Promise<
 export function detectAmbiguity(task: string, frame: IntentFrame, contents: Map<string, string>): AmbiguityReport {
   const graph = buildElementGraph(contents); // parse once, share across detectors
   const scope = scopeFiles(task, [...contents.keys()]);
-  const { duplicate, resolvedTarget } = analyzeTargets(graph, task, contents, scope);
+  const { duplicate, resolvedTarget, impact } = analyzeTargets(graph, task, contents, scope);
   return {
     duplicate,
     resolvedTarget,
+    impact,
     scoped: scope !== null,
     styleUnderspecified: frame.action === "restyle" && !STYLE_VALUE_RE.test(frame.raw),
     listTarget: frame.risk === "destructive" ? detectListTarget(graph, task, scope) : null,
@@ -260,47 +277,65 @@ function analyzeTargets(
   const scopedContents = scope ? new Map([...contents].filter(([f]) => scope.has(f))) : contents;
   const quoted = [...task.matchAll(QUOTE_RE)].map((m) => m[1].trim()).filter(Boolean);
 
+  const none = (duplicate: DuplicateFinding | null, resolvedTarget: Instance | null = null): TargetAnalysis => ({
+    duplicate,
+    resolvedTarget,
+    impact: null,
+  });
+
   // 1. Quoted target — the strongest signal. Match structurally against element
   //    text and attributes; fall back to a raw line scan so plain text and
   //    attributes like aria-label/title/alt still resolve.
   for (const phrase of quoted) {
     const els = dedupeElements(elementsMatchingPhrase(elements, phrase));
-    if (els.length >= 2 && els.length <= 9) {
-      return { duplicate: finalizeFinding(phrase, els.map(elementInstance), els), resolvedTarget: null };
-    }
-    if (els.length === 1) return { duplicate: null, resolvedTarget: elementInstance(els[0]) };
+    if (els.length >= 2 && els.length <= 9) return none(finalizeFinding(phrase, els.map(elementInstance), els));
+    if (els.length === 1) return none(null, elementInstance(els[0]));
     const raw = findPhraseLocations(phrase, scopedContents);
-    if (raw.length >= 2 && raw.length <= 9) return { duplicate: finalizeFinding(phrase, raw), resolvedTarget: null };
+    if (raw.length >= 2 && raw.length <= 9) return none(finalizeFinding(phrase, raw));
   }
 
   // 2. Element copy the task references by its words.
   const referenced = referencedGroups(elements, task);
   const collided = referenced.find((r) => r.length >= 2);
-  if (collided) {
-    return { duplicate: finalizeFinding(collided[0].text, collided.map(elementInstance), collided), resolvedTarget: null };
-  }
+  if (collided) return none(finalizeFinding(collided[0].text, collided.map(elementInstance), collided));
   // Exactly one referenced copy, matching exactly one element → target known.
   // (Two different referenced copies means the task named two things — still
   // ambiguous, so leave it to the fallback heuristics.)
-  if (referenced.length === 1 && referenced[0].length === 1) {
-    return { duplicate: null, resolvedTarget: elementInstance(referenced[0][0]) };
-  }
+  if (referenced.length === 1 && referenced[0].length === 1) return none(null, elementInstance(referenced[0][0]));
 
   // 3. Symbols — the non-UI half of the Target Graph. "remove the formatDate
   //    helper" resolves exactly like "remove the Try Now button": one match →
-  //    act, several definitions → ask which (and a destructive edit across
-  //    files is broad impact → Red, since each definition has live callers).
+  //    act, several definitions → ask which. A resolved symbol also carries its
+  //    blast radius so a destructive edit can be gated on how load-bearing it is.
   const symbols = graph.symbols.filter((s) => inScope(s.file, scope));
   const symGroups = referencedSymbolGroups(symbols, task);
   const symCollided = symGroups.find((g) => g.length >= 2);
-  if (symCollided) {
-    return { duplicate: finalizeFinding(symCollided[0].name, symCollided.map(symbolInstance)), resolvedTarget: null };
-  }
+  if (symCollided) return none(finalizeFinding(symCollided[0].name, symCollided.map(symbolInstance)));
   if (symGroups.length === 1 && symGroups[0].length === 1) {
-    return { duplicate: null, resolvedTarget: symbolInstance(symGroups[0][0]) };
+    const s = symGroups[0][0];
+    return { duplicate: null, resolvedTarget: symbolInstance(s), impact: impactOf(s) };
   }
 
-  return { duplicate: null, resolvedTarget: null };
+  return none(null);
+}
+
+function impactOf(s: SymbolNode): Impact | null {
+  if (s.refFiles.length === 0 && s.refs === 0) return null; // used nowhere else — nothing to break
+  return { target: s.name, kind: s.kind, refs: s.refs, files: s.refFiles, exported: s.exported };
+}
+
+/**
+ * How dangerous a destructive edit to this target is.
+ *   low    — used only where it's declared (or once): let it through (Green).
+ *   medium — has callers in other files: warn and confirm (Orange).
+ *   severe — a widely-used public API: block a blind run (Red), so --yes/CI
+ *            can't silently break many call sites.
+ */
+export function impactSeverity(impact: Impact): "low" | "medium" | "severe" {
+  const external = impact.files.length;
+  if (external === 0) return "low";
+  if (impact.exported && (external >= 5 || impact.refs >= 12)) return "severe";
+  return "medium";
 }
 
 /** Declared symbols the task names, grouped by name (a group of 2+ = collision). */
@@ -503,6 +538,16 @@ export function classifyBand(frame: IntentFrame, selection: Selection, ambiguity
       band: "red",
       reason: `“${t.instance.text || t.role}” is rendered from a list — a ${frame.action} would remove every item, not one`,
     };
+  }
+
+  // Impact axis: a destructive edit to a load-bearing target is unsafe even
+  // when it's perfectly unambiguous. "I know which one" ≠ "this is safe".
+  if (destructive && ambiguity.impact && impactSeverity(ambiguity.impact) !== "low") {
+    const { target, refs, files } = ambiguity.impact;
+    const reason = `${target} is used in ${refs} place${refs === 1 ? "" : "s"}${
+      files.length ? ` across ${files.length} other file${files.length === 1 ? "" : "s"}` : ""
+    } — a ${frame.action} would break them`;
+    return { band: impactSeverity(ambiguity.impact) === "severe" ? "red" : "orange", reason };
   }
 
   if (ambiguity.styleUnderspecified && (rankingIsConfident(selection) || ambiguity.resolvedTarget)) {

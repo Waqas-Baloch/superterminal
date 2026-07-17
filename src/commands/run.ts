@@ -306,7 +306,12 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     const asked =
       interactive && assessment.questions.length > 0
         ? await runQuestions(assessment.questions)
-        : { refinements: [], scope: null };
+        : { refinements: [], scope: null, cancelled: false };
+    if (asked.cancelled) {
+      log.info("");
+      log.info("Cancelled — nothing was changed.");
+      return;
+    }
     const answered = asked.refinements;
     editScope = asked.scope; // remembered so we can verify the agent honored it
     const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;

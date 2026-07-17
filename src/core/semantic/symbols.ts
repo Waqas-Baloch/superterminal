@@ -44,13 +44,15 @@ export function parseSymbols(contents: Map<string, string>): SymbolNode[] {
   }
 
   // Blast radius: how many times each name is referenced across the scanned
-  // files, excluding its own declaration sites. A deterministic identifier
-  // count — not full type-aware resolution (that needs the whole program), but
-  // enough to know that deleting this breaks N call sites.
-  const usage = countIdentifiers(parsed);
+  // files, excluding its own declaration sites, and which *other* files those
+  // references live in. A deterministic identifier count — not full type-aware
+  // resolution (that needs the whole program), but enough to know that deleting
+  // this breaks N call sites in M files.
+  const { counts, filesByName } = indexIdentifiers(parsed);
   for (const s of out) {
     const declCount = out.filter((o) => o.name === s.name).length;
-    s.refs = Math.max(0, (usage.get(s.name) ?? 0) - declCount);
+    s.refs = Math.max(0, (counts.get(s.name) ?? 0) - declCount);
+    s.refFiles = [...(filesByName.get(s.name) ?? [])].filter((f) => f !== s.file);
   }
   return out;
 }
@@ -67,6 +69,7 @@ function collectDeclarations(sf: SourceFile, file: string, out: SymbolNode[]): v
         line: decl.getStartLineNumber(),
         exported: isExported(decl),
         refs: 0,
+        refFiles: [],
         container: containerOf(decl),
         key: `${file}:${decl.getStartLineNumber()}:${name}`,
       });
@@ -87,21 +90,27 @@ function collectDeclarations(sf: SourceFile, file: string, out: SymbolNode[]): v
       line: v.getStartLineNumber(),
       exported: isExported(v),
       refs: 0,
+      refFiles: [],
       container: containerOf(v),
       key: `${file}:${v.getStartLineNumber()}:${name}`,
     });
   }
 }
 
-function countIdentifiers(parsed: { file: string; sf: SourceFile }[]): Map<string, number> {
-  const usage = new Map<string, number>();
-  for (const { sf } of parsed) {
+function indexIdentifiers(parsed: { file: string; sf: SourceFile }[]): {
+  counts: Map<string, number>;
+  filesByName: Map<string, Set<string>>;
+} {
+  const counts = new Map<string, number>();
+  const filesByName = new Map<string, Set<string>>();
+  for (const { file, sf } of parsed) {
     for (const id of sf.getDescendantsOfKind(SyntaxKind.Identifier)) {
       const t = id.getText();
-      usage.set(t, (usage.get(t) ?? 0) + 1);
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+      (filesByName.get(t) ?? filesByName.set(t, new Set()).get(t)!).add(file);
     }
   }
-  return usage;
+  return { counts, filesByName };
 }
 
 function kindLabel(kind: (typeof DECL_KINDS)[number]): SymbolNode["kind"] {

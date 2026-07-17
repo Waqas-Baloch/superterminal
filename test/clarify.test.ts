@@ -237,6 +237,43 @@ describe("rankingIsConfident — the gate that keeps Glint from over-asking", ()
   });
 });
 
+describe("impact confirmation — destructive edit to load-bearing code", () => {
+  let sdir: string;
+  beforeAll(async () => {
+    sdir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-impact-"));
+    await fs.mkdir(path.join(sdir, "src"), { recursive: true });
+    await fs.writeFile(path.join(sdir, "src", "format.ts"), "export function formatDate(d: Date) {\n  return d.toISOString();\n}\n");
+    for (let i = 1; i <= 6; i++) {
+      await fs.writeFile(
+        path.join(sdir, "src", `mod${i}.ts`),
+        `import { formatDate } from "./format";\nexport const s${i} = (d: Date) => formatDate(d);\n`,
+      );
+    }
+  });
+  afterAll(async () => {
+    await fs.rm(sdir, { recursive: true, force: true });
+  });
+
+  it("asks a proceed / update-callers / cancel confirmation instead of silently deleting", async () => {
+    const task = "remove the formatDate function";
+    const files = ["src/format.ts", ...Array.from({ length: 6 }, (_, i) => `src/mod${i + 1}.ts`)];
+    const q = (await buildQuestions(task, makeSelection(files, task), sdir)).find((x) => x.key === "impact_confirm");
+
+    expect(q).toBeDefined();
+    expect(q!.single).toBe(true);
+    expect(q!.message).toContain("formatDate");
+    expect(q!.message.toLowerCase()).toContain("break");
+    expect(q!.choices.map((c) => c.value)).toEqual(["__update__", "__proceed__", "__cancel__"]);
+
+    // "update callers" compiles an instruction to fix every call site.
+    const update = q!.refine(["__update__"])!;
+    expect(update.toLowerCase()).toContain("update");
+    expect(update).toContain("call site");
+    // "cancel" yields no refinement (run.ts aborts on the __cancel__ value).
+    expect(q!.refine(["__cancel__"])).toBeNull();
+  });
+});
+
 describe("compileTask", () => {
   it("appends refinements as clarified details", () => {
     const compiled = compileTask("change the button to black", [
