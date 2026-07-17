@@ -10,6 +10,7 @@ import { selectFiles, fullSelection } from "../core/selector";
 import { assessTask, runQuestions, compileTask, type EditScope } from "../core/clarify";
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
+import { surgicalRevert } from "../core/surgicalRevert";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -398,7 +399,10 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   // keep, and that's exactly the failure the clarification exists to prevent.
   if (outcome && editScope) {
     const missing = await findMissingKeeps(root, editScope.keep);
-    if (missing.length > 0) printScopeViolation(editScope, missing);
+    if (missing.length > 0) {
+      const canPrompt = Boolean(process.stdin.isTTY) && !opts.yes;
+      await handleScopeViolation(root, editScope, missing, canPrompt);
+    }
   }
 
   if (outcome) {
@@ -413,8 +417,17 @@ function scopeToChoice(scope: EditScope): { phrase: string; change: string[]; ke
   return { phrase: scope.phrase, change: scope.change.map(idOf), keep: scope.keep.map(idOf) };
 }
 
-/** The agent edited past what the user authorized — say so loudly. */
-function printScopeViolation(scope: EditScope, missing: Instance[]): void {
+/**
+ * The agent edited past what the user authorized. Report it, then offer to
+ * surgically restore just the out-of-scope regions — keeping the rest of the
+ * run — instead of reverting everything.
+ */
+async function handleScopeViolation(
+  root: string,
+  scope: EditScope,
+  missing: Instance[],
+  canPrompt: boolean,
+): Promise<void> {
   log.info("");
   log.warn(
     `Scope violation — ${missing.length} occurrence${missing.length === 1 ? "" : "s"} you asked to keep ${
@@ -425,8 +438,61 @@ function printScopeViolation(scope: EditScope, missing: Instance[]): void {
     const where = m.landmark ? ` inside <${m.landmark}>` : "";
     log.warn(`  • "${scope.phrase}"${where} (${m.file} line ${m.line}) is no longer there`);
   }
-  log.dim("The agent went beyond what you authorized. Undo everything with `glint revert`, then retry naming the target explicitly.");
-  process.exitCode = 1;
+
+  let proceed = false;
+  if (canPrompt) {
+    const ans = await prompts({
+      type: "confirm",
+      name: "fix",
+      message: `Restore just ${missing.length === 1 ? "that occurrence" : "those occurrences"} and keep the rest of the change?`,
+      initial: true,
+    });
+    proceed = ans.fix === true;
+  }
+  if (!proceed) {
+    log.dim("Left as-is. `glint revert` undoes the whole run.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Restore, per file, only the hunks that touched a kept occurrence.
+  const byFile = new Map<string, number[]>();
+  for (const m of missing) byFile.set(m.file, [...(byFile.get(m.file) ?? []), m.line]);
+
+  let restored = 0;
+  let files = 0;
+  for (const [rel, lines] of byFile) {
+    const before = await readBackupBefore(root, rel);
+    if (before === null) continue;
+    const after = await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "");
+    const { content, reverted } = surgicalRevert(before, after, lines);
+    if (reverted > 0 && content !== after) {
+      await fs.writeFile(nodePath.join(root, rel), content);
+      restored += reverted;
+      files++;
+    }
+  }
+
+  if (restored > 0) {
+    log.success(`Restored ${restored} region${restored === 1 ? "" : "s"} across ${files} file${files === 1 ? "" : "s"} — the rest of the change is kept.`);
+  } else {
+    log.warn("Couldn't isolate the out-of-scope edit cleanly. `glint revert` undoes the whole run.");
+    process.exitCode = 1;
+  }
+}
+
+/** Read a file's pre-run content from the most recent backup. */
+async function readBackupBefore(root: string, rel: string): Promise<string | null> {
+  const backupRoot = nodePath.join(root, ".glint", "backup");
+  let runs: string[] = [];
+  try {
+    runs = (await fs.readdir(backupRoot)).sort();
+  } catch {
+    return null;
+  }
+  if (runs.length === 0) return null;
+  const filesDir = nodePath.join(backupRoot, runs[runs.length - 1], "files");
+  return fs.readFile(nodePath.join(filesDir, rel), "utf8").catch(() => null);
 }
 
 /** The product's pitch, printed after every run: what was sent vs what exists. */
