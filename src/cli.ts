@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { planCommand } from "./commands/plan";
 import { runCommand } from "./commands/run";
 import { revertCommand } from "./commands/revert";
+import { forgetCommand } from "./commands/forget";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
@@ -58,6 +59,11 @@ program
   .command("revert")
   .description("restore files from the last run's backup")
   .action(revertCommand);
+
+program
+  .command("forget")
+  .description("clear the choices Glint has learned for this repo (.glint/intent.json)")
+  .action(forgetCommand);
 
 // Bare `glint` (no command) shows the welcome box (wordmark + status + commands).
 if (process.argv.length <= 2) {

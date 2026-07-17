@@ -9,6 +9,7 @@ import { buildGraph } from "../core/mapper";
 import { selectFiles, fullSelection } from "../core/selector";
 import { assessTask, runQuestions, compileTask, type EditScope } from "../core/clarify";
 import { findMissingKeeps, type Instance } from "../core/understanding";
+import { rememberChoice } from "../core/memory";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -303,6 +304,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     // Orange/Red (interactive): ask the focused question(s). Answers change the
     // targeting, so re-select. Yellow: no question — just tell the agent to
     // continue the existing design (doesn't change which files we pick).
+    if (assessment.recallNote) log.dim(`  ↳ ${assessment.recallNote}`);
     const asked =
       interactive && assessment.questions.length > 0
         ? await runQuestions(assessment.questions)
@@ -312,8 +314,12 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       log.info("Cancelled — nothing was changed.");
       return;
     }
-    const answered = asked.refinements;
-    editScope = asked.scope; // remembered so we can verify the agent honored it
+    // A fresh answer is remembered so the same question isn't asked next time.
+    if (asked.scope) await rememberChoice(root, scopeToChoice(asked.scope));
+
+    // Memory-applied refinements + this run's answers + any Yellow style note.
+    const answered = [...assessment.autoRefinements, ...asked.refinements];
+    editScope = asked.scope ?? assessment.autoScope; // verify whichever scope applies
     const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;
     if (refinements.length > 0) finalTask = compileTask(task, refinements);
     if (answered.length > 0) {
@@ -399,6 +405,12 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     if (!scaffold && repoTokens > 0) printSavings(manifestTokens, repoTokens);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
   }
+}
+
+/** Persist a duplicate-disambiguation answer, keyed by landmark so it survives edits. */
+function scopeToChoice(scope: EditScope): { phrase: string; change: string[]; keep: string[] } {
+  const idOf = (i: Instance) => i.landmark || i.value;
+  return { phrase: scope.phrase, change: scope.change.map(idOf), keep: scope.keep.map(idOf) };
 }
 
 /** The agent edited past what the user authorized — say so loudly. */

@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 import prompts from "prompts";
 import { STOPWORDS, type Selection } from "./selector";
+import { loadIntents, recall } from "./memory";
 import { log } from "../util/logger";
 import {
   buildIntentFrame,
@@ -56,6 +57,9 @@ export interface TaskAssessment {
   frame: IntentFrame;
   questions: ClarifyQuestion[]; // focused clarifications — empty for Green/Yellow
   styleNote: string | null; // Yellow: style-continuation guidance to compile in
+  autoRefinements: string[]; // applied from repo memory — no question needed
+  autoScope: EditScope | null; // remembered scope, so enforcement still runs
+  recallNote: string | null; // human line: "applied your earlier choice for …"
 }
 
 interface Candidate {
@@ -94,11 +98,47 @@ const MAX_ELEMENT_QUESTIONS = 2;
 export async function assessTask(task: string, selection: Selection, root: string): Promise<TaskAssessment> {
   const contents = await readSelectionContents(selection, root);
   const frame = buildIntentFrame(task);
-  const ambiguity = detectAmbiguity(task, frame, contents);
+  let ambiguity = detectAmbiguity(task, frame, contents);
+
+  // Repo memory: if this duplicate was disambiguated before and the remembered
+  // occurrence still exists, apply that choice instead of asking again.
+  const recalled = await recallDuplicateChoice(root, ambiguity.duplicate);
+  if (recalled) {
+    ambiguity = { ...ambiguity, duplicate: null, resolvedTarget: recalled.scope.change[0] };
+  }
+
   const { band, reason } = classifyBand(frame, selection, ambiguity);
-  const questions = composeQuestions(frame, ambiguity, selection, task, contents);
+  const questions = recalled ? [] : composeQuestions(frame, ambiguity, selection, task, contents);
   const styleNote = band === "yellow" ? styleContinuationNote() : null;
-  return { band, reason, frame, questions, styleNote };
+  return {
+    band,
+    reason,
+    frame,
+    questions,
+    styleNote,
+    autoRefinements: recalled ? [recalled.refinement] : [],
+    autoScope: recalled?.scope ?? null,
+    recallNote: recalled?.note ?? null,
+  };
+}
+
+/** Turn a remembered choice into a ready-to-apply constraint + scope, if it still fits. */
+async function recallDuplicateChoice(
+  root: string,
+  dup: DuplicateFinding | null,
+): Promise<{ refinement: string; scope: EditScope; note: string } | null> {
+  if (!dup) return null;
+  const choice = recall(await loadIntents(root), dup.phrase);
+  if (!choice) return null;
+  const idOf = (i: Instance) => i.landmark || i.value;
+  const change = dup.instances.filter((i) => choice.change.includes(idOf(i)));
+  if (change.length === 0) return null; // the remembered occurrence is gone — ask again
+  const keep = dup.instances.filter((i) => !change.includes(i));
+  return {
+    refinement: duplicateConstraint(dup.phrase, change, keep),
+    scope: { phrase: dup.phrase, change, keep },
+    note: `Remembered choice for “${dup.phrase}”: ${sectionSummary(change)} (undo with \`glint forget\`).`,
+  };
 }
 
 /**
@@ -216,23 +256,13 @@ function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQu
     ],
     refine: (answer) => {
       if (!answer || answer.length === 0) return null;
-      const n = dup.instances.length;
-      if (answer.includes("__all__")) return `Apply the change to all ${n} identical "${dup.phrase}" occurrences.`;
-      const picked = dup.instances.filter((i) => answer.includes(i.value));
-      if (picked.length === 0) return null;
+      if (answer.includes("__all__")) {
+        return `Apply the change to all ${dup.instances.length} identical "${dup.phrase}" occurrences.`;
+      }
+      const change = dup.instances.filter((i) => answer.includes(i.value));
+      if (change.length === 0) return null;
       const keep = dup.instances.filter((i) => !answer.includes(i.value));
-      const targets = picked.map((i) => describeInstance(i, dup.phrase)).join(" and ");
-      const keeps = keep.map((i) => describeInstance(i, dup.phrase)).join(", ");
-      // The instances are identical copy, so a plain str_replace / find-replace
-      // matches ALL of them. Tell the agent to disambiguate by surrounding
-      // structure and expand the edit to target exactly the chosen one.
-      return (
-        `There are ${n} identical "${dup.phrase}" elements. Change ONLY ${targets}. ` +
-        (keep.length ? `Do NOT touch ${keeps}. ` : "") +
-        `Because the elements are byte-for-byte identical, a plain find-and-replace would hit all of them — ` +
-        `locate the target by its surrounding markup (its enclosing element shown above) and include enough of that ` +
-        `surrounding context in the edit to match exactly one element and leave the other copies unchanged.`
-      );
+      return duplicateConstraint(dup.phrase, change, keep);
     },
     scopeFor: (answer) => {
       if (!answer || answer.length === 0 || answer.includes("__all__")) return null; // nothing to protect
@@ -242,6 +272,25 @@ function duplicateQuestion(frame: IntentFrame, dup: DuplicateFinding): ClarifyQu
       return { phrase: dup.phrase, change, keep };
     },
   };
+}
+
+/**
+ * Instruction that pins the edit to specific occurrences of identical copy.
+ * The elements are byte-for-byte identical, so a plain find-and-replace hits
+ * all of them — the agent must disambiguate by surrounding structure. Shared by
+ * the interactive question and the memory-recall path so they say the same thing.
+ */
+export function duplicateConstraint(phrase: string, change: Instance[], keep: Instance[]): string {
+  const n = change.length + keep.length;
+  const targets = change.map((i) => describeInstance(i, phrase)).join(" and ");
+  const keeps = keep.map((i) => describeInstance(i, phrase)).join(", ");
+  return (
+    `There are ${n} identical "${phrase}" elements. Change ONLY ${targets}. ` +
+    (keep.length ? `Do NOT touch ${keeps}. ` : "") +
+    `Because the elements are byte-for-byte identical, a plain find-and-replace would hit all of them — ` +
+    `locate the target by its surrounding markup (its enclosing element shown above) and include enough of that ` +
+    `surrounding context in the edit to match exactly one element and leave the other copies unchanged.`
+  );
 }
 
 // "This breaks N things — proceed?" The target is known; the question is
