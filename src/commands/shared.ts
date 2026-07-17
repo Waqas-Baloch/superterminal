@@ -1,9 +1,32 @@
 import pc from "picocolors";
 import type { Selection, SelectedFile } from "../core/selector";
 import type { Band } from "../core/understanding";
+import { semanticDiff } from "../core/semantic/diff";
 import { renderBox, type BoxRow } from "../report/box";
 import { formatTokens } from "../util/tokens";
 import { log } from "../util/logger";
+
+const orange256 = (s: string): string => `\x1b[38;5;208m${s}\x1b[39m`;
+
+/**
+ * Review-by-meaning: what the edit did, in plain statements, above the raw line
+ * diff. Warnings (broken references, unrequested reformatting) are called out.
+ */
+export function printSemanticSummary(before: Map<string, string>, after: Map<string, string>): void {
+  const changes = semanticDiff(before, after);
+  if (changes.length === 0) return;
+  log.info("");
+  log.info(pc.bold("What changed (in meaning):"));
+  for (const c of changes) {
+    if (c.warn) log.info(`  ${orange256("⚠")} ${c.summary}`);
+    else if (c.kind === "removed") log.info(`  ${pc.red("−")} ${c.summary}`);
+    else if (c.kind === "added") log.info(`  ${pc.green("+")} ${c.summary}`);
+    else log.info(`  ${pc.cyan("~")} ${c.summary}`);
+  }
+  if (changes.some((c) => c.warn)) {
+    log.dim("  ⚠ items weren't clearly part of the task — review them before keeping the run.");
+  }
+}
 
 // Four-band classifier readout (spec §Decision bands). Orange has no named
 // picocolors color, so it uses a 256-color escape (208) that degrades to the

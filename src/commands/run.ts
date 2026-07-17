@@ -28,7 +28,7 @@ import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens, formatTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
-import { printSelection, printManifestBox, printBand } from "./shared";
+import { printSelection, printManifestBox, printBand, printSemanticSummary } from "./shared";
 
 const MAX_REPAIRS = 2;
 
@@ -507,18 +507,23 @@ async function runViaApi(
   // report
   let totalAdded = 0;
   let totalRemoved = 0;
+  const beforeMap = new Map<string, string>();
+  const afterMap = new Map<string, string>();
   log.info("");
   log.info(pc.bold("Changes:"));
   for (const rel of stage.allTouched.sort()) {
     const after = await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "");
     const created = stage.wasCreated(rel);
     const before = created ? "" : await fs.readFile(nodePath.join(backupFilesDir, rel), "utf8").catch(() => "");
+    beforeMap.set(rel, before);
+    afterMap.set(rel, after);
     const d = renderFileDiff(rel, before, after, created);
     totalAdded += d.added;
     totalRemoved += d.removed;
     printFileDiff(rel, created, d.added, d.removed, d.rendered);
   }
 
+  printSemanticSummary(beforeMap, afterMap);
   log.info("");
   log.info(`${stage.allTouched.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   if (summary) {
@@ -618,6 +623,10 @@ async function runViaAgentCli(
     printFileDiff(c.path, c.created, d.added, d.removed, d.rendered);
   }
 
+  printSemanticSummary(
+    new Map(changes.map((c) => [c.path, c.before])),
+    new Map(changes.map((c) => [c.path, c.after])),
+  );
   log.info("");
   log.info(`${changes.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   log.info("");
