@@ -11,6 +11,7 @@ import { assessTask, runQuestions, compileTask, type EditScope } from "../core/c
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
 import { surgicalRevert } from "../core/surgicalRevert";
+import { isModifyAction, targetDescriptors, findMissingTargets } from "../core/preflight";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -290,6 +291,31 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     // task into one of four bands (green/yellow/orange/red).
     const interactive = Boolean(process.stdin.isTTY) && !opts.yes && opts.ask !== false;
     const assessment = await assessTask(task, selection, root);
+
+    // Preflight: a modify/destructive edit needs an existing target. If every
+    // specific thing the task names is absent from the whole repo, don't spend
+    // tokens letting the agent rediscover that — this is the token USP.
+    if (isModifyAction(assessment.frame.action)) {
+      const named = targetDescriptors(task);
+      const missing = named.length > 0 ? await findMissingTargets(root, index.files, named) : [];
+      if (missing && named.length > 0 && missing.length === named.length) {
+        log.info("");
+        log.warn(`Couldn't find ${missing.map((m) => `“${m}”`).join(" or ")} anywhere in the codebase.`);
+        log.dim(
+          `A ${assessment.frame.action} needs an existing target — sending this would just spend tokens for the agent to find the same. Check the name, or that you're in the right project.`,
+        );
+        if (!interactive) {
+          process.exitCode = 1;
+          return;
+        }
+        const ans = await prompts({ type: "confirm", name: "send", message: "Send to the agent anyway?", initial: false });
+        if (!ans.send) {
+          log.info("Cancelled — no tokens spent.");
+          return;
+        }
+      }
+    }
+
     printBand(assessment.band, assessment.reason);
 
     // Red: a destructive edit collides with identical targets in several
