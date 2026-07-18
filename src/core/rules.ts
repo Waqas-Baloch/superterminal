@@ -60,3 +60,46 @@ export function renderRulesSection(rules: LoadedRules): string {
     `(sourced from ${rules.sources.join(", ")}).\n\n${rules.text}`
   );
 }
+
+// The "keeps them honest" half: not every rule is machine-checkable, but the
+// most common and highest-value one is — "don't touch these paths". We extract
+// those from any rules text and verify them after the run, regardless of which
+// agent ran. Free-text convention → deterministic check.
+const PROTECT_RE = /\b(do ?n['o]?t|never|avoid|don't)\b[^.\n]*\b(edit|modif|touch|chang|alter|writ|delet|updat)/i;
+
+/** Paths the rules say must not be modified (e.g. `dist/`, `/payments`, `src/generated`). */
+export function extractProtectedPaths(rulesText: string): string[] {
+  const out = new Set<string>();
+  for (const line of rulesText.split("\n")) {
+    if (!PROTECT_RE.test(line)) continue;
+    for (const tok of pathTokens(line)) out.add(tok);
+  }
+  return [...out];
+}
+
+function pathTokens(line: string): string[] {
+  const raw = new Set<string>();
+  for (const m of line.matchAll(/`([^`]+)`/g)) raw.add(m[1]); // backticked
+  for (const m of line.matchAll(/[A-Za-z0-9_.@-]*\/[A-Za-z0-9_./*-]*/g)) raw.add(m[0]); // has a slash
+  const out: string[] = [];
+  for (const t of raw) {
+    const norm = t
+      .trim()
+      .replace(/^\.?\//, "") // leading ./ or /
+      .replace(/[*]+$/, "")
+      .replace(/\/+$/, "")
+      .replace(/[.,;:)]+$/, "");
+    if (norm && !norm.includes(" ") && /[A-Za-z0-9_]/.test(norm) && norm.length >= 2) out.push(norm);
+  }
+  return out;
+}
+
+/** Does a changed file fall under a protected path? Returns the matched rule path, or null. */
+export function protectedMatch(file: string, protectedPaths: string[]): string | null {
+  const f = file.replace(/^\.?\//, "");
+  for (const p of protectedPaths) {
+    if (f === p || f.startsWith(`${p}/`)) return p;
+    if (!p.includes("/") && f.split("/").includes(p)) return p; // a bare dir name, matched anywhere
+  }
+  return null;
+}

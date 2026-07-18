@@ -11,6 +11,7 @@ import { assessTask, runQuestions, compileTask, type EditScope } from "../core/c
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
 import { surgicalRevert } from "../core/surgicalRevert";
+import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { isModifyAction, targetDescriptors, findMissingTargets } from "../core/preflight";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
@@ -440,6 +441,19 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     }
   }
 
+  // Rule enforcement: a rule may say "don't touch these paths". Verify it —
+  // regardless of which agent ran — and offer to restore anything that broke it.
+  if (outcome && outcome.touched.length > 0) {
+    const protectedPaths = extractProtectedPaths((await loadRules(root)).text);
+    if (protectedPaths.length > 0) {
+      const violations = outcome.touched.filter((f) => protectedMatch(f, protectedPaths));
+      if (violations.length > 0) {
+        const canPrompt = Boolean(process.stdin.isTTY) && !opts.yes;
+        await handleRuleViolation(root, violations, protectedPaths, canPrompt);
+      }
+    }
+  }
+
   if (outcome) {
     if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens, manifestExact);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
@@ -542,6 +556,50 @@ function mergeUsage(a: AgentUsage | null, b: AgentUsage | null): AgentUsage | nu
     outputTokens: a.outputTokens + b.outputTokens,
     costUsd: a.costUsd != null || b.costUsd != null ? (a.costUsd ?? 0) + (b.costUsd ?? 0) : undefined,
   };
+}
+
+/**
+ * The agent changed a file your rules protect. Report it, then offer to put
+ * those files back exactly as they were — restored files it modified, deleted
+ * ones it created — while keeping the rest of the run.
+ */
+async function handleRuleViolation(
+  root: string,
+  violations: string[],
+  protectedPaths: string[],
+  canPrompt: boolean,
+): Promise<void> {
+  log.info("");
+  log.warn(`Rule violation — ${violations.length} protected file${violations.length === 1 ? "" : "s"} changed:`);
+  for (const f of violations) log.warn(`  • ${f}  (rules protect "${protectedMatch(f, protectedPaths)}")`);
+
+  let restore = false;
+  if (canPrompt) {
+    const ans = await prompts({
+      type: "confirm",
+      name: "fix",
+      message: `Put ${violations.length === 1 ? "that file" : "those files"} back and keep the rest of the change?`,
+      initial: true,
+    });
+    restore = ans.fix === true;
+  }
+  if (!restore) {
+    log.dim("Left as-is. `glint revert` undoes the whole run.");
+    process.exitCode = 1;
+    return;
+  }
+
+  let restored = 0;
+  for (const rel of violations) {
+    const before = await readBackupBefore(root, rel);
+    if (before !== null) {
+      await fs.writeFile(nodePath.join(root, rel), before); // agent modified a protected file → restore it
+    } else {
+      await fs.rm(nodePath.join(root, rel), { force: true }); // agent created it under a protected path → remove it
+    }
+    restored++;
+  }
+  log.success(`Restored ${restored} protected file${restored === 1 ? "" : "s"} — the rest of the change is kept.`);
 }
 
 /** Read a file's pre-run content from the most recent backup. */

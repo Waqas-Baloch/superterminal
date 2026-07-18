@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { loadRules, renderRulesSection } from "../src/core/rules";
+import { loadRules, renderRulesSection, extractProtectedPaths, protectedMatch } from "../src/core/rules";
 import { generateManifest } from "../src/core/manifest";
 import type { Selection } from "../src/core/selector";
 
@@ -58,7 +58,7 @@ describe("rules reach the manifest — the neutral layer in action", () => {
       optional: [],
       totalTokens: 10,
       budget: 30_000,
-      taskType: "refactor",
+      taskType: "ui",
       taskConfidence: 0.9,
       anchors: [],
     };
@@ -67,6 +67,32 @@ describe("rules reach the manifest — the neutral layer in action", () => {
     expect(manifest).toContain("## Project rules");
     expect(manifest).toContain("never touch the /payments directory");
     expect(manifest).toContain("no matter which agent you are"); // the cross-agent framing
+  });
+});
+
+describe("rule verification — protected paths (the 'keeps them honest' half)", () => {
+  it("extracts protected paths from varied natural-language rules", () => {
+    const text = [
+      "- Do not modify generated code: `dist/`, build/",
+      "- Never touch the /payments directory.",
+      "- Don't edit files under src/generated.",
+      "- Use named exports.", // not a path rule → ignored
+    ].join("\n");
+    const paths = extractProtectedPaths(text);
+    expect(paths).toEqual(expect.arrayContaining(["dist", "build", "payments", "src/generated"]));
+    expect(paths).not.toContain("exports");
+  });
+
+  it("matches changed files against protected paths (incl. nested dir names)", () => {
+    const p = ["dist", "payments", "src/generated"];
+    expect(protectedMatch("dist/bundle.js", p)).toBe("dist");
+    expect(protectedMatch("src/payments/charge.ts", p)).toBe("payments"); // bare name, nested
+    expect(protectedMatch("src/generated/api.ts", p)).toBe("src/generated");
+    expect(protectedMatch("src/app.ts", p)).toBeNull(); // allowed
+  });
+
+  it("does not extract paths from a rule without a protection verb", () => {
+    expect(extractProtectedPaths("- Prefer the src/ layout.")).toEqual([]);
   });
 });
 
