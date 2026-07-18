@@ -4,6 +4,7 @@ import { planCommand } from "./commands/plan";
 import { runCommand } from "./commands/run";
 import { revertCommand } from "./commands/revert";
 import { forgetCommand } from "./commands/forget";
+import { initCommand } from "./commands/init";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
@@ -39,6 +40,11 @@ program
   .option("--out <file>", "write the manifest to a file")
   .description("dry run: show what would be selected and sent, without calling Claude")
   .action(planCommand);
+
+program
+  .command("init")
+  .description("draft a .glint/rules.md for this repo (rules Glint applies to every agent)")
+  .action(initCommand);
 
 program
   .command("connect")

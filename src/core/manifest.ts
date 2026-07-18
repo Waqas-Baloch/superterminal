@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import { Project } from "ts-morph";
 import { loadAliases } from "./mapper";
+import { loadRules, renderRulesSection } from "./rules";
 import { expandTask } from "./terms";
 import { focusContent, type FocusResult } from "./focus";
 import { estimateTokens } from "../util/tokens";
@@ -58,6 +59,9 @@ export async function generateManifest(opts: {
   parts.push("# Repo context manifest");
   parts.push(`## Task\n${task}`);
   parts.push(APPLY_GUIDANCE);
+  // Project rules — same rules injected for every agent (the neutral layer).
+  const rulesSection = renderRulesSection(await loadRules(root));
+  if (rulesSection) parts.push(rulesSection);
   if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
   parts.push(await projectFacts(root));
 
@@ -108,6 +112,8 @@ export async function generateScaffoldManifest(opts: {
   sessionNote?: string;
 }): Promise<string> {
   const parts = ["# New project manifest", `## Task\n${opts.task}`];
+  const rulesSection = renderRulesSection(await loadRules(opts.root));
+  if (rulesSection) parts.push(rulesSection);
   if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
   parts.push(await projectFacts(opts.root));
   parts.push(
