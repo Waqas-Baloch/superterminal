@@ -10,7 +10,7 @@ import pc from "picocolors";
 // top and bottom of each bob instead of snapping. Phase-offsetting each dot by
 // a third of a cycle makes the wave travel left→right.
 
-const LIME = "\x1b[38;2;0;64;255m"; // brand blue #0040FF (name kept to avoid churn)
+const LIME = "\x1b[38;2;243;249;255m"; // brand light #F3F9FF on the blue bg (name kept)
 const RESET = "\x1b[0m";
 const lime = (s: string) => (pc.isColorSupported ? `${LIME}${s}${RESET}` : s);
 

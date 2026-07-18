@@ -4,7 +4,7 @@ import { execa } from "execa";
 import { resolveAuth } from "../util/globalConfig";
 import { AGENT_CLIS } from "../claude/agentCli";
 
-const LIME = "\x1b[38;2;0;64;255m"; // brand blue #0040FF (name kept to avoid churn)
+const LIME = "\x1b[38;2;243;249;255m"; // brand light #F3F9FF on the blue bg (name kept)
 const RESET = "\x1b[0m";
 const on = pc.isColorSupported;
 const lime = (s: string) => (on ? `${LIME}${s}${RESET}` : s);

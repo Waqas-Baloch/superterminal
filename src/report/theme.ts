@@ -6,15 +6,16 @@ import pc from "picocolors";
 
 export const RESET = "\x1b[0m";
 
-// Truecolor accents (used where the old UI used lime, so it stays visible on a
-// light background instead of washing out).
-export const ACCENT_FG = "\x1b[38;2;0;64;255m"; // #0040FF text
-export const ACCENT_BG = "\x1b[48;2;0;64;255m"; // #0040FF fill (for chips/boxes)
-export const ON_ACCENT = "\x1b[38;2;243;249;255m"; // #F3F9FF — light text ON the blue fill
-export const ON_ACCENT_DIM = "\x1b[38;2;191;214;255m"; // softer light text on the blue fill
+// Swapped theme: deep-blue window, light text. The accent must be light now
+// (a blue accent would vanish into the blue background), and the chips invert
+// to a light fill with blue text.
+export const ACCENT_FG = "\x1b[38;2;243;249;255m"; // #F3F9FF — light accent on the blue bg
+export const ACCENT_BG = "\x1b[48;2;243;249;255m"; // #F3F9FF — light chip fill
+export const ON_ACCENT = "\x1b[38;2;0;64;255m"; // #0040FF — blue text ON the light chip
+export const ON_ACCENT_DIM = "\x1b[38;2;58;95;208m"; // mid-blue supporting text on the light chip
 
-const BG_HEX = "#F3F9FF";
-const FG_HEX = "#0040FF";
+const BG_HEX = "#0040FF";
+const FG_HEX = "#F3F9FF";
 
 export const accent = (s: string): string => (pc.isColorSupported ? `${ACCENT_FG}${s}${RESET}` : s);
 export const accentBold = (s: string): string => (pc.isColorSupported ? `\x1b[1m${ACCENT_FG}${s}${RESET}` : s);
