@@ -36,6 +36,21 @@ export interface AgentCliDef {
     args: string[]; // extra flags to switch the CLI into line-delimited JSON
     parse: (line: string) => { text?: string; usage?: AgentUsage } | null;
   };
+  // Experimental "surgical" mode (Step 0): restrict the agent to a direct edit
+  // with no repo exploration, to measure how much of the token cost is the
+  // agent's own discovery loop rather than the manifest. Read+Edit stay enabled
+  // (Claude Code's Edit requires a prior Read); search/exec tools are cut.
+  surgicalArgs?: string[];
+}
+
+/** Compose the final argv: base args + JSON-usage flags + (optionally) surgical restrictions. */
+export function composeArgs(agent: AgentCliDef, baseArgs: string[], surgical: boolean): string[] {
+  const out = [...baseArgs];
+  if (agent.jsonUsage) out.push(...agent.jsonUsage.args);
+  // surgicalArgs go last: Claude Code's --disallowedTools is variadic and would
+  // otherwise swallow following flags.
+  if (surgical && agent.surgicalArgs) out.push(...agent.surgicalArgs);
+  return out;
 }
 
 export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
@@ -50,6 +65,8 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     billingNote: "covered by your Claude Code login/subscription",
     runArgs: (p) => ["-p", p, "--permission-mode", "acceptEdits"],
     continueArgs: (p) => ["-c", "-p", p, "--permission-mode", "acceptEdits"],
+    // Cut discovery/exec tools; keep Read+Edit+Write so the edit still applies.
+    surgicalArgs: ["--disallowedTools", "Bash", "Grep", "Glob", "WebFetch", "WebSearch", "Task", "TodoWrite"],
     // stream-json emits one JSON event per line; the final `result` event
     // carries real token usage and total_cost_usd — even on a subscription.
     jsonUsage: {
@@ -129,8 +146,9 @@ export async function runAgent(
   root: string,
   prompt: string,
   onFirstOutput?: () => void,
+  surgical = false,
 ): Promise<AgentUsage | null> {
-  return invoke(agent, root, agent.runArgs(prompt), onFirstOutput);
+  return invoke(agent, root, agent.runArgs(prompt), onFirstOutput, surgical);
 }
 
 export async function continueAgent(
@@ -138,8 +156,9 @@ export async function continueAgent(
   root: string,
   prompt: string,
   onFirstOutput?: () => void,
+  surgical = false,
 ): Promise<AgentUsage | null> {
-  return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput);
+  return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput, surgical);
 }
 
 async function invoke(
@@ -147,6 +166,7 @@ async function invoke(
   root: string,
   args: string[],
   onFirstOutput?: () => void,
+  surgical = false,
 ): Promise<AgentUsage | null> {
   // Relay the agent's output live rather than inheriting it. Headless/print mode
   // has no interactive TUI to preserve — it's a stream. In plain mode we forward
@@ -159,7 +179,7 @@ async function invoke(
   // deadlock); in a pipe/CI it gets EOF instead.
   const stdinMode = process.stdin.isTTY ? "inherit" : "ignore";
   const jsonMode = agent.jsonUsage;
-  const child = execa(agent.bin, jsonMode ? [...args, ...jsonMode.args] : args, {
+  const child = execa(agent.bin, composeArgs(agent, args, surgical), {
     cwd: root,
     reject: false,
     timeout: AGENT_TIMEOUT_MS,

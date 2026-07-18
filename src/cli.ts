@@ -26,6 +26,7 @@ program
   .option("--no-validate", "skip local validation")
   .option("--no-focus", "send whole files instead of task-relevant excerpts")
   .option("--no-ask", "skip clarifying questions")
+  .option("--surgical", "experimental: restrict Claude Code to a direct edit (no repo exploration) to measure token cost")
   .description("start a glint session: run tasks continuously until /exit")
   .action(runCommand);
 

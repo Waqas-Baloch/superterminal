@@ -42,6 +42,7 @@ interface RunOptions {
   validate?: boolean;
   focus?: boolean;
   ask?: boolean;
+  surgical?: boolean; // experimental: restrict the agent to a direct edit, no exploration
 }
 
 interface ExecContext {
@@ -696,7 +697,13 @@ async function runViaAgentCli(
   // Snapshot file contents up front so we can diff (and revert) without git.
   const snapshot = await snapshotContents(root, index);
 
+  const surgical = opts.surgical === true;
+  const surgicalNudge = surgical
+    ? "\n\nSURGICAL MODE: the manifest contains everything you need. Make the requested edit directly. Do NOT search, grep, list, or run commands, and do NOT explore other files. Read only the file you are editing, apply the change, and stop — do not re-read to verify."
+    : "";
+
   log.info("");
+  if (surgical) log.dim(`  (surgical mode: ${agent.title} restricted to a direct edit — measuring token cost)`);
   log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
   // The agent takes a while to boot and think before it says anything. Fill
   // that dead air with the wave, and clear it the instant real output lands.
@@ -706,8 +713,9 @@ async function runViaAgentCli(
     usage = await runAgent(
       agent,
       root,
-      `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.`,
+      `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.${surgicalNudge}`,
       () => wave.stop(),
+      surgical,
     );
     wave.stop(); // agent finished without ever printing
   } catch (err) {
@@ -732,7 +740,7 @@ async function runViaAgentCli(
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
       const repairWave = pixelWave(`${agent.title} is thinking…`);
       try {
-        usage = mergeUsage(usage, await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop()));
+        usage = mergeUsage(usage, await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop(), surgical));
         repairWave.stop();
       } catch (err) {
         repairWave.stop();

@@ -6,6 +6,7 @@ import { execa } from "execa";
 import {
   AGENT_CLIS,
   runAgent,
+  composeArgs,
   type AgentCliDef,
   isGitRepo,
   hasHeadCommit,
@@ -86,6 +87,26 @@ describe("git helpers", () => {
     expect(await gitBefore(fresh, "style.css")).toBe("body { margin: 0; }\n");
 
     await fs.rm(fresh, { recursive: true, force: true });
+  });
+});
+
+describe("composeArgs — surgical mode restrictions (Step 0)", () => {
+  const base = ["-p", "do the task", "--permission-mode", "acceptEdits"];
+
+  it("appends JSON-usage flags but no restrictions in normal mode", () => {
+    const args = composeArgs(AGENT_CLIS["claude-code"], base, false);
+    expect(args).toContain("--output-format");
+    expect(args).not.toContain("--disallowedTools");
+  });
+
+  it("cuts exploration tools in surgical mode, keeping Read/Edit (they aren't disallowed)", () => {
+    const args = composeArgs(AGENT_CLIS["claude-code"], base, true);
+    expect(args).toContain("--disallowedTools");
+    for (const t of ["Bash", "Grep", "Glob"]) expect(args).toContain(t);
+    // Read/Edit/Write must NOT be disallowed — the edit still has to apply.
+    for (const t of ["Read", "Edit", "Write"]) expect(args).not.toContain(t);
+    // Restrictions come last so the variadic flag doesn't swallow others.
+    expect(args.indexOf("--disallowedTools")).toBeGreaterThan(args.indexOf("--output-format"));
   });
 });
 
