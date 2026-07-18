@@ -16,7 +16,7 @@ describe("renderBox", () => {
   });
 
   it("uses rounded corners and a titled top border", () => {
-    const [top, , bottom] = renderBox("CSS — 1 file", [{ left: "style.css" }]).map(stripAnsi);
+    const [top, , bottom] = renderBox("CSS — 1 file", [{ left: "style.css" }], BOX_WIDTH, "outline").map(stripAnsi);
     expect(top.startsWith("╭─ CSS — 1 file ")).toBe(true);
     expect(top.endsWith("╮")).toBe(true);
     expect(bottom.startsWith("╰")).toBe(true);
@@ -25,7 +25,7 @@ describe("renderBox", () => {
 
   it("truncates long paths from the left instead of overflowing", () => {
     const longPath = "src/very/deeply/nested/directory/structure/with/a/really/long/component/name/File.tsx";
-    const lines = renderBox("TypeScript — 1 file", [{ left: longPath, right: "~9.9k tok" }]);
+    const lines = renderBox("TypeScript — 1 file", [{ left: longPath, right: "~9.9k tok" }], BOX_WIDTH, "outline");
     const row = stripAnsi(lines[1]);
     expect(row.length).toBe(BOX_WIDTH);
     expect(row).toContain("…");

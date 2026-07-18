@@ -1,15 +1,16 @@
 import pc from "picocolors";
+import { RESET, ACCENT_FG, ACCENT_BG, ON_ACCENT, ON_ACCENT_DIM, accent } from "./theme";
 
-const RESET = "\x1b[0m";
-const LIME_FG = "\x1b[38;5;154m";
-const LIME_BG = "\x1b[48;5;154m";
-const INK = "\x1b[38;5;22m"; // darkest green — main text on lime fill
-const MID = "\x1b[38;5;28m"; // medium green — supporting text on lime fill
+const BLUE_FG = ACCENT_FG; // #0040FF — border/accent
+const BLUE_BG = ACCENT_BG; // #0040FF — chip fill
+const INK = ON_ACCENT; // light text on the blue fill
+const MID = ON_ACCENT_DIM; // softer light text on the blue fill
 const BOLD = "\x1b[1m";
 const NO_BOLD = "\x1b[22m";
 
-export const lime = (s: string) => (pc.isColorSupported ? `${LIME_FG}${s}${RESET}` : s);
-export const darkGreen = (s: string) => (pc.isColorSupported ? `${MID}${s}${RESET}` : s);
+// Kept these names so importers don't churn; both are the brand blue now.
+export const lime = accent;
+export const darkGreen = accent;
 
 export interface BoxRow {
   left: string;
@@ -34,8 +35,8 @@ function renderFilled(title: string, rows: BoxRow[], width: number): string[] {
   const content = width - 4;
   const out: string[] = [];
 
-  out.push(`${LIME_FG}▗${"▄".repeat(width - 2)}▖${RESET}`);
-  out.push(`${LIME_BG}${INK}  ${BOLD}${pad(fit(title, content), content)}${NO_BOLD}  ${RESET}`);
+  out.push(`${BLUE_FG}▗${"▄".repeat(width - 2)}▖${RESET}`);
+  out.push(`${BLUE_BG}${INK}  ${BOLD}${pad(fit(title, content), content)}${NO_BOLD}  ${RESET}`);
 
   for (const row of rows) {
     const { left, gap, right } = compose(row, content);
@@ -43,10 +44,10 @@ function renderFilled(title: string, rows: BoxRow[], width: number): string[] {
       row.kind === "sub"
         ? `${MID}${left}${gap}${right}`
         : `${INK}${left}${gap}${MID}${right}${INK}`;
-    out.push(`${LIME_BG}  ${body}  ${RESET}`);
+    out.push(`${BLUE_BG}  ${body}  ${RESET}`);
   }
 
-  out.push(`${LIME_FG}▝${"▀".repeat(width - 2)}▘${RESET}`);
+  out.push(`${BLUE_FG}▝${"▀".repeat(width - 2)}▘${RESET}`);
   return out;
 }
 

@@ -19,6 +19,7 @@ export interface RunnerOptions {
 
 const MAX_TOOL_TURNS = 40;
 const MAX_TOKENS = 16_000;
+const MIN_MS_BETWEEN_CALLS = 1_000; // rate limit: space out consecutive requests to the Anthropic API
 
 /**
  * Manual agentic loop: we own the message history so validation feedback can
@@ -27,6 +28,7 @@ const MAX_TOKENS = 16_000;
 export class ClaudeRunner {
   private client: Anthropic;
   private messages: Anthropic.MessageParam[] = [];
+  private lastCallAt = 0;
   readonly usage: RunnerUsage = { input: 0, output: 0, cacheRead: 0 };
 
   constructor(private opts: RunnerOptions) {
@@ -45,8 +47,16 @@ export class ClaudeRunner {
     return this.loop();
   }
 
+  /** Enforce a minimum interval between consecutive calls to the Anthropic API. */
+  private async rateLimit(): Promise<void> {
+    const wait = this.lastCallAt + MIN_MS_BETWEEN_CALLS - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    this.lastCallAt = Date.now();
+  }
+
   private async loop(): Promise<string> {
     for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      await this.rateLimit();
       const response = await this.client.messages.create({
         model: this.opts.model,
         max_tokens: MAX_TOKENS,

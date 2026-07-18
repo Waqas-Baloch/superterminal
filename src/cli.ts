@@ -10,7 +10,12 @@ import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
 import { renderHeader } from "./report/banner";
+import { applyTheme } from "./report/theme";
 import { VERSION } from "./version";
+
+// Paint the terminal in Glint's theme (light-blue background, blue text) for
+// the session; restored on exit.
+applyTheme();
 
 const program = new Command();
 
