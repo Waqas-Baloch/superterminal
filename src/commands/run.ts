@@ -97,13 +97,15 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   log.info(await renderHeader(VERSION, "session"));
-  log.dim("  Type a task, or a /command. /help lists them.");
+  log.dim("  Type a task — or just / to pick a command.");
   log.info("");
 
   let input = taskArg ?? (await promptNextTask(true));
   let count = 0;
   while (input) {
-    const cmd = interpret(input);
+    let cmd = interpret(input);
+    if (cmd.type === "menu") cmd = await showCommandMenu(); // "/" → pick a command
+    if (cmd.type === "exit") break;
     if (cmd.type === "clear") {
       process.stdout.write("\x1b[2J\x1b[3J\x1b[H"); // clear screen + scrollback, cursor home
       log.info(await renderHeader(VERSION, "session")); // follow-up context is kept
@@ -120,14 +122,14 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     } else if (cmd.type === "help") {
       printSessionHelp();
     } else if (cmd.type === "hint") {
-      log.info(cmd.message);
+      if (cmd.message) log.info(cmd.message); // empty = cancelled menu → no-op
     } else if (cmd.type === "plan") {
       try {
         await planCommand(cmd.task, { budget: ctx.opts.budget, focus: ctx.opts.focus });
       } catch (err) {
         log.error(err instanceof Error ? err.message : String(err));
       }
-    } else {
+    } else if (cmd.type === "task") {
       count++;
       try {
         await executeTask(cmd.task, ctx);
@@ -150,6 +152,8 @@ type SessionCommand =
   | { type: "search" }
   | { type: "help" }
   | { type: "clear" }
+  | { type: "menu" } // bare "/" or an unknown /command → show the command picker
+  | { type: "exit" }
   | { type: "hint"; message: string };
 
 /**
@@ -157,7 +161,7 @@ type SessionCommand =
  * `glint <cmd>` forms (which people naturally type, having seen the header),
  * so they aren't mistaken for tasks. Everything else is a task.
  */
-function interpret(input: string): SessionCommand {
+export function interpret(input: string): SessionCommand {
   const raw = input.trim();
   const m = raw.match(/^(?:\/|glint\s+)(run|plan|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
@@ -181,7 +185,39 @@ function interpret(input: string): SessionCommand {
     bare === "cd" || bare === "project" ? "search" : bare === "?" || bare === "commands" ? "help" : bare === "cls" ? "clear" : bare;
   const nav = navCommand(alias);
   if (nav) return nav;
+  // A lone "/" or an unrecognized /command opens the picker rather than running
+  // as a task — so "/" is all you type to see and choose every command.
+  if (raw.startsWith("/")) return { type: "menu" };
   return { type: "task", task: raw };
+}
+
+// Session commands, in menu order. `arg` marks ones that need a follow-up (task).
+const MENU: { value: string; title: string; description: string; arg?: boolean }[] = [
+  { value: "plan", title: "/plan", description: "preview a task — don't send it", arg: true },
+  { value: "switch", title: "/switch", description: "change the coding agent" },
+  { value: "search", title: "/search", description: "switch to another project" },
+  { value: "connect", title: "/connect", description: "set up or re-authenticate a provider" },
+  { value: "clear", title: "/clear", description: "clear the screen (keeps context)" },
+  { value: "help", title: "/help", description: "show all commands" },
+  { value: "exit", title: "/exit", description: "end the session" },
+];
+
+/** Show the command picker (triggered by typing "/") and resolve the choice. */
+async function showCommandMenu(): Promise<SessionCommand> {
+  const { cmd } = await prompts({
+    type: "select",
+    name: "cmd",
+    message: "Commands",
+    choices: MENU.map((c) => ({ title: c.title, description: c.description, value: c.value })),
+    hint: "↑↓ to move · enter to pick · esc to cancel",
+  });
+  if (cmd === undefined) return { type: "hint", message: "" }; // cancelled — back to the prompt
+  if (cmd === "plan") {
+    const { task } = await prompts({ type: "text", name: "task", message: "Task to preview" });
+    const t = task ? String(task).trim() : "";
+    return t ? { type: "plan", task: t } : { type: "hint", message: "" };
+  }
+  return { type: cmd } as SessionCommand;
 }
 
 function navCommand(name: string): SessionCommand | null {
