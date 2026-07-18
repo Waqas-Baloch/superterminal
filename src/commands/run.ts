@@ -23,7 +23,7 @@ import { planCommand } from "./plan";
 import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
-import { AGENT_CLIS, runAgent, continueAgent, type AgentCliDef } from "../claude/agentCli";
+import { AGENT_CLIS, runAgent, continueAgent, type AgentCliDef, type AgentUsage } from "../claude/agentCli";
 import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
 import { loadConfig, type GlintConfig } from "../util/config";
@@ -361,6 +361,12 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
 
   // 4: manifest + confirm (with view / edit before sending)
   let manifestTokens = estimateTokens(manifest);
+  let manifestExact = false;
+  const counted = await exactManifestTokens(manifest, model, auth);
+  if (counted !== null) {
+    manifestTokens = counted;
+    manifestExact = true;
+  }
   const target = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : model;
   printManifestBox({
     tokens: manifestTokens,
@@ -400,8 +406,10 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
           const edited = await openInEditor(manifest, "md");
           if (edited.trim() && edited !== manifest) {
             manifest = edited;
-            manifestTokens = estimateTokens(manifest);
-            log.success(`Manifest updated — now ~${formatTokens(manifestTokens)} tokens`);
+            const recounted = await exactManifestTokens(manifest, model, auth);
+            manifestExact = recounted !== null;
+            manifestTokens = recounted ?? estimateTokens(manifest);
+            log.success(`Manifest updated — now ${manifestExact ? "" : "~"}${formatTokens(manifestTokens)} tokens`);
           } else {
             log.dim("No changes.");
           }
@@ -432,8 +440,25 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   }
 
   if (outcome) {
-    if (!scaffold && repoTokens > 0) printSavings(manifestTokens, repoTokens);
+    if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens, manifestExact);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
+  }
+}
+
+/**
+ * Exact input-token count for the manifest via the Anthropic count_tokens
+ * endpoint (cheap, no generation). Only for API/OAuth auth — subscription
+ * agent-CLI runs have no API client here, and get the real number from the
+ * agent's own usage report instead. Returns null to fall back to the estimate.
+ */
+async function exactManifestTokens(manifest: string, model: string, auth: Auth): Promise<number | null> {
+  if (auth.mode === "agent-cli") return null;
+  try {
+    const client = new Anthropic(auth.mode === "api-key" ? { apiKey: auth.apiKey } : {});
+    const res = await client.messages.countTokens({ model, messages: [{ role: "user", content: manifest }] });
+    return res.input_tokens;
+  } catch {
+    return null;
   }
 }
 
@@ -507,6 +532,17 @@ async function handleScopeViolation(
   }
 }
 
+/** Sum usage across the main run and any repair passes. */
+function mergeUsage(a: AgentUsage | null, b: AgentUsage | null): AgentUsage | null {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    costUsd: a.costUsd != null || b.costUsd != null ? (a.costUsd ?? 0) + (b.costUsd ?? 0) : undefined,
+  };
+}
+
 /** Read a file's pre-run content from the most recent backup. */
 async function readBackupBefore(root: string, rel: string): Promise<string | null> {
   const backupRoot = nodePath.join(root, ".glint", "backup");
@@ -522,18 +558,16 @@ async function readBackupBefore(root: string, rel: string): Promise<string | nul
 }
 
 /** The product's pitch, printed after every run: what was sent vs what exists. */
-function printSavings(sentTokens: number, repoTokens: number): void {
-  // Rough model of what an agent's own discovery loop would have read:
-  // a quarter of the repo, floored at 30k, capped at 250k tokens.
-  const exploration = Math.min(Math.max(repoTokens * 0.25, 30_000), 250_000);
-  const saved = Math.round(Math.max(0, exploration - sentTokens));
+function printContextSummary(sentTokens: number, repoTokens: number, exact: boolean): void {
+  // Honest framing: the ratio Glint can actually stand behind — the manifest is
+  // this share of the indexed repo, so the rest was never sent. No invented
+  // "saved vs unassisted exploration" counterfactual.
   const pctNum = Math.min(100, (sentTokens / repoTokens) * 100);
   const pct = pctNum < 1 ? pctNum.toFixed(1) : String(Math.round(pctNum));
+  const a = exact ? "" : "~"; // "~" only where the number is a chars/4 estimate
   log.info("");
-  log.info(
-    darkGreen(`Context sent: ~${formatTokens(sentTokens)} of ~${formatTokens(repoTokens)} repo tokens (${pct}%)`) +
-      (saved > 0 ? pc.dim(`  — est. ~${formatTokens(saved)} tokens saved vs unassisted exploration`) : ""),
-  );
+  log.info(darkGreen(`Context sent: ${a}${formatTokens(sentTokens)} tokens — ${pct}% of the indexed repo (~${formatTokens(repoTokens)})`));
+  log.dim(`  Glint packed only what this task needs; the other ${Math.max(0, 100 - Math.round(pctNum))}% of the repo was not sent.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -666,9 +700,10 @@ async function runViaAgentCli(
   log.info(pc.dim(`── ${agent.title} is working — its live output follows ` + "─".repeat(Math.max(0, 30 - agent.title.length))));
   // The agent takes a while to boot and think before it says anything. Fill
   // that dead air with the wave, and clear it the instant real output lands.
+  let usage: AgentUsage | null = null;
   const wave = pixelWave(`${agent.title} is thinking…`);
   try {
-    await runAgent(
+    usage = await runAgent(
       agent,
       root,
       `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.`,
@@ -697,7 +732,7 @@ async function runViaAgentCli(
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
       const repairWave = pixelWave(`${agent.title} is thinking…`);
       try {
-        await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop());
+        usage = mergeUsage(usage, await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop()));
         repairWave.stop();
       } catch (err) {
         repairWave.stop();
@@ -734,7 +769,15 @@ async function runViaAgentCli(
   log.info("");
   log.info(`${changes.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   log.info("");
-  log.dim(`Billing: ${agent.billingNote}.`);
+  if (usage) {
+    // Real numbers, straight from the agent — accurate on a subscription too.
+    const cost = usage.costUsd != null ? ` · $${usage.costUsd.toFixed(4)}` : "";
+    log.dim(
+      `Tokens (actual, reported by ${agent.title}): ${formatTokens(usage.inputTokens)} in / ${formatTokens(usage.outputTokens)} out${cost}`,
+    );
+  } else {
+    log.dim(`Billing: ${agent.billingNote}.`);
+  }
   log.dim("Undo anytime with `glint revert`.");
 
   if (validationFailed) process.exitCode = 1;

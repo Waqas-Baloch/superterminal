@@ -102,7 +102,8 @@ describe("live output relay", () => {
       setTimeout(() => process.stdout.write("CHUNK-3\\n"), 300);
     }, 300);
   `;
-  const fake: AgentCliDef = { ...AGENT_CLIS["claude-code"], bin: "node", runArgs: () => ["-e", script] };
+  // Plain-text agent (no jsonUsage) — forwards bytes as-is.
+  const fake: AgentCliDef = { ...AGENT_CLIS["claude-code"], bin: "node", jsonUsage: undefined, runArgs: () => ["-e", script] };
 
   it("streams output live and signals the first byte mid-run", async () => {
     const start = Date.now();
@@ -129,5 +130,47 @@ describe("live output relay", () => {
     // Streamed through rather than dumped at exit.
     expect(seen).toHaveLength(3);
     expect(seen[2] - seen[0]).toBeGreaterThan(200);
+  });
+
+  it("parses Claude Code stream-json: renders text live and captures real usage", async () => {
+    // A fake agent that emits Claude-Code-shaped stream-json events, then a
+    // `result` event carrying the true token usage + cost.
+    const events = [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "Editing the navbar." }] } }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "src/Nav.tsx" } }] } }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        total_cost_usd: 0.0123,
+        usage: { input_tokens: 900, cache_read_input_tokens: 100, output_tokens: 250 },
+      }),
+    ];
+    const script = `${JSON.stringify(events)}.forEach(l => process.stdout.write(l + "\\n"));`;
+    const jsonAgent: AgentCliDef = {
+      ...AGENT_CLIS["claude-code"],
+      bin: "node",
+      // strip the real --output-format flags; our fake ignores them but they'd confuse node
+      jsonUsage: { ...AGENT_CLIS["claude-code"].jsonUsage!, args: [] },
+      runArgs: () => ["-e", script],
+    };
+
+    let printed = "";
+    const write = process.stdout.write.bind(process.stdout);
+    (process.stdout as unknown as { write: unknown }).write = (chunk: unknown, ...rest: unknown[]) => {
+      printed += String(chunk);
+      return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
+    };
+    let usage;
+    try {
+      usage = await runAgent(jsonAgent, process.cwd(), "ignored");
+    } finally {
+      (process.stdout as unknown as { write: unknown }).write = write;
+    }
+
+    expect(printed).toContain("Editing the navbar."); // assistant text rendered
+    expect(printed).toContain("src/Nav.tsx"); // tool activity shown
+    expect(printed).not.toContain('"type":"result"'); // raw JSON not leaked to the user
+    expect(usage).toEqual({ inputTokens: 1000, outputTokens: 250, costUsd: 0.0123 }); // real numbers captured
   });
 });
