@@ -153,7 +153,7 @@ describe("live output relay", () => {
     expect(seen[2] - seen[0]).toBeGreaterThan(200);
   });
 
-  it("parses Claude Code stream-json: renders text live and captures real usage", async () => {
+  it("parses Claude Code stream-json: shows steps, suppresses code narration, captures real usage", async () => {
     // A fake agent that emits Claude-Code-shaped stream-json events, then a
     // `result` event carrying the true token usage + cost.
     const events = [
@@ -189,8 +189,9 @@ describe("live output relay", () => {
       (process.stdout as unknown as { write: unknown }).write = write;
     }
 
-    expect(printed).toContain("Editing the navbar."); // assistant text rendered
-    expect(printed).toContain("src/Nav.tsx"); // tool activity shown
+    expect(printed).toContain("src/Nav.tsx"); // the step (current action) is shown
+    expect(printed).toContain("Editing"); // present-continuous verb for the Edit tool
+    expect(printed).not.toContain("navbar"); // narration/code suppressed during the run
     expect(printed).not.toContain('"type":"result"'); // raw JSON not leaked to the user
     expect(usage).toEqual({ inputTokens: 1000, outputTokens: 250, costUsd: 0.0123 }); // real numbers captured
   });

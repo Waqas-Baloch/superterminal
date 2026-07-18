@@ -1,10 +1,44 @@
 import os from "node:os";
 import nodePath from "node:path";
-import pc from "picocolors";
 import { execa } from "execa";
+import { statusLine } from "../report/status";
 import type { AgentCliId } from "../util/globalConfig";
 
 const AGENT_TIMEOUT_MS = 900_000; // 15 min — headless runs on hard tasks take a while
+
+interface ToolBlock {
+  type?: string;
+  text?: string;
+  name?: string;
+  input?: { file_path?: string; path?: string; command?: string; pattern?: string; query?: string; url?: string };
+}
+
+// Present-continuous labels so a step reads as a live action ("Writing …").
+const TOOL_VERB: Record<string, string> = {
+  Write: "Writing",
+  Edit: "Editing",
+  MultiEdit: "Editing",
+  NotebookEdit: "Editing",
+  Read: "Reading",
+  Bash: "Running",
+  Glob: "Finding",
+  Grep: "Searching",
+  WebFetch: "Fetching",
+  WebSearch: "Searching",
+  Task: "Delegating",
+  TodoWrite: "Planning",
+};
+
+/** One short, path-relative line describing what the agent is doing right now. */
+function stepLabel(b: ToolBlock): string {
+  const verb = TOOL_VERB[b.name ?? ""] ?? b.name ?? "Working";
+  const input = b.input ?? {};
+  const isPath = Boolean(input.file_path || input.path);
+  let target = String(input.file_path ?? input.path ?? input.command ?? input.pattern ?? input.query ?? input.url ?? "");
+  if (isPath && target.startsWith(`${process.cwd()}/`)) target = target.slice(process.cwd().length + 1);
+  if (target.length > 60) target = `…${target.slice(-57)}`;
+  return `→ ${verb}${target ? ` ${target}` : ""}`;
+}
 
 /** Real token/cost usage as reported by the agent CLI itself (no API key needed). */
 export interface AgentUsage {
@@ -34,7 +68,10 @@ export interface AgentCliDef {
   // the accurate, subscription-friendly number (the agent counted it, not us).
   jsonUsage?: {
     args: string[]; // extra flags to switch the CLI into line-delimited JSON
-    parse: (line: string) => { text?: string; usage?: AgentUsage } | null;
+    // step  → the agent's current action, shown on one updating status line
+    // text  → narration (suppressed during the run; the diff shows the code)
+    // usage → real token counts
+    parse: (line: string) => { step?: string; text?: string; usage?: AgentUsage } | null;
   };
   // Experimental "surgical" mode (Step 0): restrict the agent to a direct edit
   // with no repo exploration, to measure how much of the token cost is the
@@ -72,19 +109,23 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     jsonUsage: {
       args: ["--output-format", "stream-json", "--verbose"],
       parse: (line) => {
-        let o: { type?: string; message?: { content?: unknown[] }; usage?: Record<string, number>; total_cost_usd?: number };
+        let o: { type?: string; message?: { content?: ToolBlock[] }; usage?: Record<string, number>; total_cost_usd?: number };
         try {
           o = JSON.parse(line);
         } catch {
           return null;
         }
         if (o.type === "assistant" && Array.isArray(o.message?.content)) {
+          // A tool call is a "step" (shown live); text is narration (suppressed
+          // during the run — the code shows up in the diff afterward).
+          let step: string | undefined;
           let text = "";
-          for (const b of o.message.content as { type?: string; text?: string; name?: string; input?: { file_path?: string } }[]) {
-            if (b.type === "text" && b.text) text += b.text;
-            else if (b.type === "tool_use") text += `\n${pc.dim(`  → ${b.name ?? "tool"}${b.input?.file_path ? " " + b.input.file_path : ""}`)}`;
+          for (const b of o.message.content) {
+            if (b.type === "tool_use") step = stepLabel(b);
+            else if (b.type === "text" && b.text) text += b.text;
           }
-          return text ? { text: text + "\n" } : null;
+          if (step) return { step };
+          return text ? { text } : null;
         }
         if (o.type === "result") {
           const u = o.usage ?? {};
@@ -196,8 +237,9 @@ async function invoke(
     }
   };
   let usage: AgentUsage | null = null;
+  const status = jsonMode ? statusLine() : null;
 
-  if (jsonMode) {
+  if (jsonMode && status) {
     let buf = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       buf += chunk.toString();
@@ -207,20 +249,23 @@ async function invoke(
         buf = buf.slice(nl + 1);
         if (!line.trim()) continue;
         const r = jsonMode.parse(line);
-        if (r?.text) {
+        if (r?.step) {
           announce();
-          process.stdout.write(r.text);
+          status.set(r.step); // one updating line, current action, shimmering
         } else if (!r && !line.trimStart().startsWith("{")) {
-          // Safety net: the CLI didn't honor JSON mode (or printed plain text) —
-          // forward it raw so the user never sees a blank screen.
+          // Safety net: the CLI didn't honor JSON mode — forward raw so the
+          // user never sees a blank screen.
           announce();
-          process.stdout.write(line + "\n");
+          status.stop();
+          process.stdout.write(`${line}\n`);
         }
+        // r.text (narration) is intentionally suppressed during the run.
         if (r?.usage) usage = r.usage;
       }
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       announce();
+      status.stop();
       process.stderr.write(chunk);
     });
   } else {
@@ -235,6 +280,7 @@ async function invoke(
   }
 
   const result = await child;
+  status?.stop();
   if (result.exitCode !== 0) {
     throw new Error(`${agent.bin} exited with code ${result.exitCode} (see its output above)`);
   }
