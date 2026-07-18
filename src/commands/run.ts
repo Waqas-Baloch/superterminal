@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import { spin, pixelWave } from "../report/spinner";
+import { readSessionLine, type SlashCommand } from "../report/sessionInput";
 import nodePath from "node:path";
 import pc from "picocolors";
 import prompts from "prompts";
@@ -192,7 +193,7 @@ export function interpret(input: string): SessionCommand {
 }
 
 // Session commands, in menu order. `arg` marks ones that need a follow-up (task).
-const MENU: { value: string; title: string; description: string; arg?: boolean }[] = [
+const MENU: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview a task — don't send it", arg: true },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
@@ -264,16 +265,13 @@ function printSessionHelp(): void {
 
 async function promptNextTask(first: boolean): Promise<string | undefined> {
   for (;;) {
-    const { next } = await prompts({
-      type: "text",
-      name: "next",
-      message: first ? "What should I do?" : "Next task",
-    });
+    // Type freely for a task; typing "/" pops the command dropdown instantly.
+    const next = await readSessionLine(first ? "What should I do?" : "Next task", MENU);
     if (next === undefined) return undefined; // Ctrl-C
-    const task = String(next).trim();
+    const task = next.trim();
     if (["/exit", "/quit", "/q", "exit", "quit"].includes(task.toLowerCase())) return undefined;
     if (task) return task;
-    log.dim("Enter a task, or /exit to quit.");
+    log.dim("Enter a task, or / to pick a command.");
   }
 }
 
