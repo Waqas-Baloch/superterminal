@@ -34,10 +34,92 @@ function stepLabel(b: ToolBlock): string {
   const verb = TOOL_VERB[b.name ?? ""] ?? b.name ?? "Working";
   const input = b.input ?? {};
   const isPath = Boolean(input.file_path || input.path);
-  let target = String(input.file_path ?? input.path ?? input.command ?? input.pattern ?? input.query ?? input.url ?? "");
-  if (isPath && target.startsWith(`${process.cwd()}/`)) target = target.slice(process.cwd().length + 1);
-  if (target.length > 60) target = `…${target.slice(-57)}`;
-  return `→ ${verb}${target ? ` ${target}` : ""}`;
+  const target = input.file_path ?? input.path ?? input.command ?? input.pattern ?? input.query ?? input.url ?? "";
+  return `→ ${verb}${target ? ` ${shortTarget(String(target), isPath)}` : ""}`;
+}
+
+function shortTarget(target: string, isPath: boolean): string {
+  let t = target;
+  if (isPath && t.startsWith(`${process.cwd()}/`)) t = t.slice(process.cwd().length + 1);
+  return t.length > 60 ? `…${t.slice(-57)}` : t;
+}
+
+function num(v: unknown): number | undefined {
+  return typeof v === "number" ? v : undefined;
+}
+
+/** Pull token usage out of whatever shape an agent reports it in. */
+function usageFrom(o: unknown): AgentUsage | null {
+  if (!o || typeof o !== "object") return null;
+  const r = o as Record<string, number | undefined>;
+  const inp = num(r.input_tokens) ?? num(r.prompt_tokens);
+  const out = num(r.output_tokens) ?? num(r.completion_tokens);
+  if (inp == null && out == null) return null;
+  return {
+    inputTokens: (inp ?? 0) + (num(r.cache_creation_input_tokens) ?? 0) + (num(r.cache_read_input_tokens) ?? 0),
+    outputTokens: out ?? 0,
+    costUsd: num(r.total_cost_usd),
+  };
+}
+
+/**
+ * One parser for every agent's line-delimited JSON. Handles the Claude Code /
+ * Cursor stream-json shape (assistant messages + a result event) and Codex's
+ * event shape ({id, msg:{type,…}} / {type, item:{…}}), then falls back to a
+ * generic field scan. Returns a step to show, narration text (suppressed live),
+ * or usage. Unknown lines return null and the caller keeps the wave running —
+ * so an unrecognized schema degrades to "thinking then diff", never a blank
+ * screen or a code dump.
+ */
+export function parseAgentEvent(line: string): { step?: string; text?: string; usage?: AgentUsage } | null {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(line);
+  } catch {
+    return null;
+  }
+
+  // 1. Claude Code / Cursor: assistant messages + a final result event.
+  const message = o.message as { content?: ToolBlock[] } | undefined;
+  if (o.type === "assistant" && Array.isArray(message?.content)) {
+    let step: string | undefined;
+    let text = "";
+    for (const b of message.content) {
+      if (b.type === "tool_use") step = stepLabel(b);
+      else if (b.type === "text" && b.text) text += b.text;
+    }
+    return step ? { step } : text ? { text } : null;
+  }
+  if (o.type === "result") {
+    const u = usageFrom(o.usage) ?? { inputTokens: 0, outputTokens: 0 };
+    if (typeof o.total_cost_usd === "number") u.costUsd = o.total_cost_usd;
+    return { usage: u };
+  }
+
+  // 2. Codex-style events: unwrap {id, msg:{…}}, read the type.
+  const msg = (o.msg && typeof o.msg === "object" ? o.msg : o) as Record<string, unknown>;
+  const item = (msg.item && typeof msg.item === "object" ? msg.item : {}) as Record<string, unknown>;
+  const type = String(msg.type ?? o.type ?? "");
+
+  const u = usageFrom(msg) ?? usageFrom((msg.info as Record<string, unknown>)?.total_token_usage) ?? usageFrom(o.usage);
+  if (u && /token|usage|complete/i.test(type)) return { usage: u };
+
+  const cmd = msg.command ?? item.command;
+  if (cmd && /begin|start|exec|command/i.test(type)) {
+    return { step: `→ Running ${shortTarget(Array.isArray(cmd) ? cmd.join(" ") : String(cmd), false)}` };
+  }
+  const changes = (msg.changes ?? item.changes) as Record<string, unknown> | undefined;
+  if (changes && typeof changes === "object") {
+    const paths = Object.keys(changes);
+    if (paths.length) return { step: `→ Editing ${shortTarget(paths[0], true)}${paths.length > 1 ? ` (+${paths.length - 1} more)` : ""}` };
+  }
+  const fp = msg.file_path ?? msg.path ?? item.path;
+  if (fp && /patch|file|edit|write|apply/i.test(type)) return { step: `→ Editing ${shortTarget(String(fp), true)}` };
+
+  const t = msg.message ?? msg.text ?? item.text;
+  if (typeof t === "string" && t.trim()) return { text: t };
+
+  return null;
 }
 
 /** Real token/cost usage as reported by the agent CLI itself (no API key needed). */
@@ -106,40 +188,7 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     surgicalArgs: ["--disallowedTools", "Bash", "Grep", "Glob", "WebFetch", "WebSearch", "Task", "TodoWrite"],
     // stream-json emits one JSON event per line; the final `result` event
     // carries real token usage and total_cost_usd — even on a subscription.
-    jsonUsage: {
-      args: ["--output-format", "stream-json", "--verbose"],
-      parse: (line) => {
-        let o: { type?: string; message?: { content?: ToolBlock[] }; usage?: Record<string, number>; total_cost_usd?: number };
-        try {
-          o = JSON.parse(line);
-        } catch {
-          return null;
-        }
-        if (o.type === "assistant" && Array.isArray(o.message?.content)) {
-          // A tool call is a "step" (shown live); text is narration (suppressed
-          // during the run — the code shows up in the diff afterward).
-          let step: string | undefined;
-          let text = "";
-          for (const b of o.message.content) {
-            if (b.type === "tool_use") step = stepLabel(b);
-            else if (b.type === "text" && b.text) text += b.text;
-          }
-          if (step) return { step };
-          return text ? { text } : null;
-        }
-        if (o.type === "result") {
-          const u = o.usage ?? {};
-          return {
-            usage: {
-              inputTokens: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
-              outputTokens: u.output_tokens ?? 0,
-              costUsd: typeof o.total_cost_usd === "number" ? o.total_cost_usd : undefined,
-            },
-          };
-        }
-        return null;
-      },
-    },
+    jsonUsage: { args: ["--output-format", "stream-json", "--verbose"], parse: parseAgentEvent },
   },
   cursor: {
     id: "cursor",
@@ -153,6 +202,10 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     runArgs: (p) => ["-p", p, "--force"],
     // cursor-agent has no reliable headless resume — repo state + error text carry the context
     continueArgs: (p) => ["-p", `You just made edits in this repository. ${p}`, "--force"],
+    // Cursor's stream-json (unverified here — cursor-agent not installed on the
+    // dev box). If the flag or schema differ, the shared parser simply won't
+    // recognize events and the run degrades to the wave + diff (never a blank).
+    jsonUsage: { args: ["--output-format", "stream-json"], parse: parseAgentEvent },
   },
   codex: {
     id: "codex",
@@ -172,6 +225,9 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
       "--skip-git-repo-check",
       `You just made edits in this repository. ${p}`,
     ],
+    // `codex exec --json` prints events as JSONL (flag confirmed from --help).
+    // The event schema is best-effort; unrecognized events degrade to the wave.
+    jsonUsage: { args: ["--json"], parse: parseAgentEvent },
   },
 };
 

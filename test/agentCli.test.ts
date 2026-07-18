@@ -7,6 +7,7 @@ import {
   AGENT_CLIS,
   runAgent,
   composeArgs,
+  parseAgentEvent,
   type AgentCliDef,
   isGitRepo,
   hasHeadCommit,
@@ -87,6 +88,38 @@ describe("git helpers", () => {
     expect(await gitBefore(fresh, "style.css")).toBe("body { margin: 0; }\n");
 
     await fs.rm(fresh, { recursive: true, force: true });
+  });
+});
+
+describe("parseAgentEvent — one parser, every agent's JSON shape", () => {
+  const j = (o: unknown) => JSON.stringify(o);
+
+  it("Claude/Cursor stream-json: tool_use → step, text → narration, result → usage", () => {
+    expect(parseAgentEvent(j({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }))).toEqual({ text: "hi" });
+    expect(
+      parseAgentEvent(j({ type: "assistant", message: { content: [{ type: "tool_use", name: "Write", input: { file_path: "src/a.ts" } }] } })),
+    ).toEqual({ step: "→ Writing src/a.ts" });
+    expect(
+      parseAgentEvent(j({ type: "result", total_cost_usd: 0.02, usage: { input_tokens: 900, cache_read_input_tokens: 100, output_tokens: 250 } })),
+    ).toEqual({ usage: { inputTokens: 1000, outputTokens: 250, costUsd: 0.02 } });
+  });
+
+  it("Codex JSONL: exec/patch/token events map to steps and usage", () => {
+    expect(parseAgentEvent(j({ id: "1", msg: { type: "exec_command_begin", command: ["npm", "test"] } }))).toEqual({
+      step: "→ Running npm test",
+    });
+    expect(
+      parseAgentEvent(j({ id: "2", msg: { type: "patch_apply_begin", changes: { "src/app.ts": {}, "src/b.ts": {} } } })),
+    ).toMatchObject({ step: "→ Editing src/app.ts (+1 more)" });
+    expect(parseAgentEvent(j({ msg: { type: "token_count", input_tokens: 500, output_tokens: 80 } }))).toEqual({
+      usage: { inputTokens: 500, outputTokens: 80, costUsd: undefined },
+    });
+    expect(parseAgentEvent(j({ msg: { type: "agent_message", message: "thinking…" } }))).toEqual({ text: "thinking…" });
+  });
+
+  it("unknown JSON returns null (so the run degrades to the wave, never a blank)", () => {
+    expect(parseAgentEvent(j({ msg: { type: "some_future_event", detail: 42 } }))).toBeNull();
+    expect(parseAgentEvent("not json at all")).toBeNull();
   });
 });
 
