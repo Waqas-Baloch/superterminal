@@ -32,7 +32,7 @@ import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens, formatTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
-import { printSelection, printManifestBox, printBand, printSemanticSummary } from "./shared";
+import { printSelection, printBand, printSemanticSummary } from "./shared";
 
 const MAX_REPAIRS = 2;
 
@@ -361,21 +361,11 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     manifest = await generateManifest({ root, task: finalTask, selection, focus: opts.focus, sessionNote });
   }
 
-  // 4: manifest + confirm (with view / edit before sending)
-  let manifestTokens = estimateTokens(manifest);
-  let manifestExact = false;
-  const counted = await exactManifestTokens(manifest, model, auth);
-  if (counted !== null) {
-    manifestTokens = counted;
-    manifestExact = true;
-  }
+  // 4: confirm (with view / edit before sending). No pre-send token box —
+  // the numbers were estimates, the Send prompt already names the target, and
+  // the real usage is reported by the agent afterward.
+  let manifestTokens = estimateTokens(manifest); // used only for the post-run ratio
   const target = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : model;
-  printManifestBox({
-    tokens: manifestTokens,
-    budget,
-    target,
-    detail: `via ${auth.source}`,
-  });
 
   if (!opts.yes) {
     for (;;) {
@@ -408,10 +398,8 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
           const edited = await openInEditor(manifest, "md");
           if (edited.trim() && edited !== manifest) {
             manifest = edited;
-            const recounted = await exactManifestTokens(manifest, model, auth);
-            manifestExact = recounted !== null;
-            manifestTokens = recounted ?? estimateTokens(manifest);
-            log.success(`Manifest updated — now ${manifestExact ? "" : "~"}${formatTokens(manifestTokens)} tokens`);
+            manifestTokens = estimateTokens(manifest);
+            log.success("Manifest updated.");
           } else {
             log.dim("No changes.");
           }
@@ -455,25 +443,8 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   }
 
   if (outcome) {
-    if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens, manifestExact);
+    if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
-  }
-}
-
-/**
- * Exact input-token count for the manifest via the Anthropic count_tokens
- * endpoint (cheap, no generation). Only for API/OAuth auth — subscription
- * agent-CLI runs have no API client here, and get the real number from the
- * agent's own usage report instead. Returns null to fall back to the estimate.
- */
-async function exactManifestTokens(manifest: string, model: string, auth: Auth): Promise<number | null> {
-  if (auth.mode === "agent-cli") return null;
-  try {
-    const client = new Anthropic(auth.mode === "api-key" ? { apiKey: auth.apiKey } : {});
-    const res = await client.messages.countTokens({ model, messages: [{ role: "user", content: manifest }] });
-    return res.input_tokens;
-  } catch {
-    return null;
   }
 }
 
@@ -616,17 +587,16 @@ async function readBackupBefore(root: string, rel: string): Promise<string | nul
   return fs.readFile(nodePath.join(filesDir, rel), "utf8").catch(() => null);
 }
 
-/** The product's pitch, printed after every run: what was sent vs what exists. */
-function printContextSummary(sentTokens: number, repoTokens: number, exact: boolean): void {
-  // Honest framing: the ratio Glint can actually stand behind — the manifest is
-  // this share of the indexed repo, so the rest was never sent. No invented
-  // "saved vs unassisted exploration" counterfactual.
-  const pctNum = Math.min(100, (sentTokens / repoTokens) * 100);
-  const pct = pctNum < 1 ? pctNum.toFixed(1) : String(Math.round(pctNum));
-  const a = exact ? "" : "~"; // "~" only where the number is a chars/4 estimate
+/** The product's pitch, printed after every run — the honest ratio, no raw token counts. */
+function printContextSummary(sentTokens: number, repoTokens: number): void {
+  // Just the share of the repo Glint sent — a ratio it can stand behind. No raw
+  // token numbers (they were estimates; the real usage is reported by the agent).
+  const pctNum = Math.min(100, Math.max(0, (sentTokens / repoTokens) * 100));
+  const sent = pctNum < 1 ? pctNum.toFixed(1) : String(Math.round(pctNum));
+  const skipped = Math.max(0, 100 - Math.round(pctNum));
   log.info("");
-  log.info(darkGreen(`Context sent: ${a}${formatTokens(sentTokens)} tokens — ${pct}% of the indexed repo (~${formatTokens(repoTokens)})`));
-  log.dim(`  Glint packed only what this task needs; the other ${Math.max(0, 100 - Math.round(pctNum))}% of the repo was not sent.`);
+  log.info(darkGreen(`Context: Glint sent ~${sent}% of the repo — only what this task needs.`));
+  if (skipped > 0) log.dim(`  The other ~${skipped}% wasn't sent.`);
 }
 
 // ---------------------------------------------------------------------------

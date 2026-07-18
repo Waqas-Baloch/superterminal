@@ -7,9 +7,10 @@ import { buildGraph } from "../core/mapper";
 import { selectFiles } from "../core/selector";
 import { generateManifest } from "../core/manifest";
 import { loadConfig } from "../util/config";
-import { estimateTokens, formatTokens } from "../util/tokens";
+import { estimateTokens } from "../util/tokens";
+import { darkGreen } from "../report/box";
 import { log } from "../util/logger";
-import { printSelection, printManifestBox } from "./shared";
+import { printSelection } from "./shared";
 
 interface PlanOptions {
   budget?: string;
@@ -50,12 +51,8 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
   const manifestTokens = estimateTokens(manifest);
   const repoTokens = estimateTokens(index.files.reduce((sum, f) => sum + f.size, 0));
 
-  printManifestBox({
-    tokens: manifestTokens,
-    budget,
-    target: "dry run",
-    detail: `repo is ~${formatTokens(repoTokens)} tokens — sending ${percent(manifestTokens, repoTokens)}`,
-  });
+  log.info("");
+  log.info(darkGreen(`Dry run — Glint would send ~${percent(manifestTokens, repoTokens)} of the repo, only what this task needs.`));
 
   if (opts.out) {
     const outPath = nodePath.resolve(root, opts.out);

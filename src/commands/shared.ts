@@ -3,7 +3,6 @@ import type { Selection, SelectedFile } from "../core/selector";
 import type { Band } from "../core/understanding";
 import { semanticDiff } from "../core/semantic/diff";
 import { renderBox, type BoxRow } from "../report/box";
-import { formatTokens } from "../util/tokens";
 import { log } from "../util/logger";
 
 const orange256 = (s: string): string => `\x1b[38;5;208m${s}\x1b[39m`;
@@ -93,7 +92,9 @@ export function printSelection(selection: Selection): void {
   for (const [lang, entries] of groups) {
     const rows: BoxRow[] = [];
     for (const { file, tier } of entries) {
-      rows.push({ left: file.path, right: `~${formatTokens(file.tokens)} tok`, kind: "main" });
+      // No token count — the numbers were estimates and are off-message now.
+      // The what + why (path, reason, tier) is the transparency worth keeping.
+      rows.push({ left: file.path, kind: "main" });
       rows.push({ left: `  ${file.reasons[0]} · ${tier}`, kind: "sub" });
     }
     const title = `${lang} — ${entries.length} file${entries.length > 1 ? "s" : ""}`;
@@ -102,19 +103,3 @@ export function printSelection(selection: Selection): void {
   }
 }
 
-export function printManifestBox(opts: {
-  tokens: number;
-  budget: number;
-  target: string;
-  detail?: string;
-}): void {
-  const rows: BoxRow[] = [
-    {
-      left: `~${formatTokens(opts.tokens)} tokens of ${formatTokens(opts.budget)} budget`,
-      right: `→ ${opts.target}`,
-      kind: "main",
-    },
-  ];
-  if (opts.detail) rows.push({ left: opts.detail, kind: "sub" });
-  for (const line of renderBox("Manifest ready", rows)) log.info(line);
-}
