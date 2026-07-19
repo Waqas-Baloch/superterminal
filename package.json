@@ -1,6 +1,6 @@
 {
   "name": "getglint",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "description": "Glint — compress your codebase into a task-specific manifest for any AI coding agent. Precision context, fewer tokens.",
   "type": "module",
   "license": "MIT",
