@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFlow } from "../src/core/flow";
+import { parseFlow, describeStep } from "../src/core/flow";
 
 describe("parseFlow — deterministic multi-step planning", () => {
   it("splits on 'then' and routes each step to its named agent", () => {
@@ -45,5 +45,38 @@ describe("parseFlow — deterministic multi-step planning", () => {
     const steps = parseFlow("first plan the change with claude\nthen apply it with cursor; finally run the tests");
     expect(steps.map((s) => s.task)).toEqual(["plan the change", "apply it", "run the tests"]);
     expect(steps.map((s) => s.agent)).toEqual(["claude-code", "cursor", null]);
+  });
+});
+
+describe("flow parsing — phrasings people actually type", () => {
+  it("drops the dangling 'and' from '…with claude and then…'", () => {
+    const steps = parseFlow("update the hero with claude and then verify with codex");
+    expect(steps.map((s) => s.task)).toEqual(["update the hero", "verify"]);
+    expect(steps.map((s) => s.agent)).toEqual(["claude-code", "codex"]);
+  });
+
+  it("splits on sentences as well as 'then'", () => {
+    const steps = parseFlow("analyze the code with claude. then refactor with cursor");
+    expect(steps).toHaveLength(2);
+    expect(steps[1].agent).toBe("cursor");
+  });
+
+  it("keeps a filename in the step task", () => {
+    const steps = parseFlow("check index.html with claude, then improve it with cursor");
+    expect(steps[0].task).toBe("check index.html");
+  });
+});
+
+describe("describeStep — the preview must name the agent that will really run", () => {
+  it("shows the substitute, not the agent the step asked for", () => {
+    const [step] = parseFlow("fix it with cursor");
+    expect(step.agent).toBe("cursor");
+    // Cursor isn't installed; codex stands in — the plan must say codex.
+    expect(describeStep(step, 1, "ChatGPT (Codex)")).toBe("2. fix it  → ChatGPT (Codex)");
+  });
+
+  it("names the connected agent when the step named none", () => {
+    const [step] = parseFlow("tidy the header");
+    expect(describeStep(step, 0, "Claude Code")).toBe("1. tidy the header  → Claude Code");
   });
 });

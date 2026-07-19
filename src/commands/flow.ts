@@ -22,6 +22,35 @@ import { log } from "../util/logger";
 // with outputs passed forward. The neutral layer's payoff: no vendor will run a
 // pipeline across its rivals.
 
+/**
+ * A step named an agent that isn't installed. Ask what to do about it once,
+ * and reuse the answer for every other step naming the same agent. Returns the
+ * agent to run those steps with, or null to stop.
+ */
+async function pickSubstitute(
+  wanted: AgentCliDef,
+  fallback: AgentCliDef | null,
+  interactive: boolean,
+): Promise<AgentCliDef | null> {
+  if (!interactive || !fallback || fallback.id === wanted.id) return null;
+  if (!(await isAgentInstalled(fallback.bin))) return null;
+
+  log.info("");
+  log.warn(`${wanted.title} isn't installed.`);
+  log.dim(`  ${wanted.installHint}`);
+  const { choice } = await prompts({
+    type: "select",
+    name: "choice",
+    message: `Run its steps with ${fallback.title} instead?`,
+    choices: [
+      { title: `Use ${fallback.title} for those steps`, value: "substitute" },
+      { title: `Stop — I'll install ${wanted.title} first`, value: "stop" },
+    ],
+    initial: 0,
+  });
+  return choice === "substitute" ? fallback : null;
+}
+
 export async function flowCommand(input: string, opts: { budget?: string; yes?: boolean } = {}): Promise<void> {
   const root = process.cwd();
   const config = await loadConfig(root);
@@ -38,28 +67,49 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   const auth = await resolveAuth();
   const fallback: AgentCliDef | null = auth?.mode === "agent-cli" ? AGENT_CLIS[auth.agent] : null;
 
-  const resolved: { step: FlowStep; agent: AgentCliDef }[] = [];
+  const resolved: { step: FlowStep; agent: AgentCliDef; substituted?: string }[] = [];
+  // A flow names agents you may not have installed. Dead-ending on the whole
+  // plan is the wrong trade — offer to run those steps with the agent that IS
+  // connected, so one missing CLI doesn't cost you the pipeline. Scripts
+  // (--yes / no TTY) still fail loudly: silent substitution there would change
+  // what ran without anyone seeing it.
+  const interactive = Boolean(process.stdin.isTTY) && !opts.yes;
+  const substitutions = new Map<string, AgentCliDef | null>(); // decided once per missing agent
   for (const step of steps) {
-    const agent = step.agent ? AGENT_CLIS[step.agent] : fallback;
-    if (!agent) {
+    const wanted = step.agent ? AGENT_CLIS[step.agent] : fallback;
+    if (!wanted) {
       log.error(`Step "${step.task}" names no agent and none is connected. Run \`glint connect\` or name one (…with claude).`);
       process.exitCode = 1;
       return;
     }
-    if (!(await isAgentInstalled(agent.bin))) {
-      log.error(`${agent.title} isn't installed (needed for "${step.task}").`);
-      log.dim(`  ${agent.installHint}`);
+    if (await isAgentInstalled(wanted.bin)) {
+      resolved.push({ step, agent: wanted });
+      continue;
+    }
+
+    if (!substitutions.has(wanted.id)) {
+      substitutions.set(wanted.id, await pickSubstitute(wanted, fallback, interactive));
+    }
+    const stand = substitutions.get(wanted.id) ?? null;
+    if (!stand) {
+      log.error(`${wanted.title} isn't installed (needed for "${step.task}").`);
+      log.dim(`  ${wanted.installHint}`);
       process.exitCode = 1;
       return;
     }
-    resolved.push({ step, agent });
+    resolved.push({ step, agent: stand, substituted: wanted.title });
   }
 
   // Show the plan before anything runs — a flow is several agent runs, so the
   // confirmation is up front rather than per step.
   log.info("");
   log.info(pc.bold(`Flow — ${resolved.length} step${resolved.length === 1 ? "" : "s"}:`));
-  for (const [i, r] of resolved.entries()) log.info(`  ${describeStep(r.step, i, r.agent.title)}`);
+  for (const [i, r] of resolved.entries()) {
+    const line = `  ${describeStep(r.step, i, r.agent.title)}`;
+    // Never let a substitution pass unseen — the arrow shows the agent that
+    // will really run, and the note says whose place it's taking.
+    log.info(r.substituted ? `${line}  ${pc.yellow(`(standing in for ${r.substituted})`)}` : line);
+  }
   log.info("");
   if (!opts.yes) {
     const { go } = await prompts({ type: "confirm", name: "go", message: "Run this flow?", initial: true });

@@ -63,14 +63,19 @@ function parseStep(raw: string): FlowStep {
     .replace(/\s{2,}/g, " ")
     .replace(/^[,\s]+|[,\s.]+$/g, "")
     .replace(/^(?:let'?s|and|also|first|next|finally|now)\s+/i, "")
+    .replace(/\s+and$/i, "") // "…with claude and then…" leaves a dangling "and"
     .trim();
   return { task, agent, skill };
 }
 
-/** One-line summary of a step, for the plan preview. */
-export function describeStep(s: FlowStep, index: number, fallbackAgent: string): string {
-  const bits = [`${index + 1}. ${s.task}`];
-  bits.push(`→ ${s.agent ?? fallbackAgent}`);
+/**
+ * One-line summary of a step, for the plan preview. `runningAgent` is the agent
+ * that will ACTUALLY run it — which is not always the one the step named, since
+ * a missing CLI can be substituted. The preview must show what will happen, not
+ * what was asked for.
+ */
+export function describeStep(s: FlowStep, index: number, runningAgent: string): string {
+  const bits = [`${index + 1}. ${s.task}`, `→ ${runningAgent}`];
   if (s.skill) bits.push(`· skill: ${s.skill}`);
   return bits.join("  ");
 }
