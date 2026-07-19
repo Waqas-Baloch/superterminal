@@ -3,6 +3,7 @@ import nodePath from "node:path";
 import { Project } from "ts-morph";
 import { loadAliases } from "./mapper";
 import { loadRules, renderRulesSection } from "./rules";
+import { loadSkills, matchSkills, renderSkillsSection } from "./skills";
 import { expandTask } from "./terms";
 import { focusContent, type FocusResult } from "./focus";
 import { estimateTokens } from "../util/tokens";
@@ -62,6 +63,9 @@ export async function generateManifest(opts: {
   // Project rules — same rules injected for every agent (the neutral layer).
   const rulesSection = renderRulesSection(await loadRules(root));
   if (rulesSection) parts.push(rulesSection);
+  // Skills — team know-how, injected only when it matches this task.
+  const skillsSection = renderSkillsSection(matchSkills(task, await loadSkills(root)));
+  if (skillsSection) parts.push(skillsSection);
   if (opts.sessionNote) parts.push(`## Session context\n${opts.sessionNote}`);
   parts.push(await projectFacts(root));
 
