@@ -11,7 +11,7 @@ It is not an agent. It has no model of its own and writes no code — it orchest
 Node 20+ required.
 
 ```sh
-npm install -g superterminal
+npm install -g super-t
 super-t connect          # one-time: pick your agent
 super-t run "add a loading state to the checkout button"
 ```
