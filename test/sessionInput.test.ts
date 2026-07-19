@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { filterCommands, readSessionLine, type SlashCommand } from "../src/report/sessionInput";
+import { filterCommands, highlightFiles, readSessionLine, type SlashCommand } from "../src/report/sessionInput";
 
 const CMDS: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview", arg: true },
@@ -131,5 +131,36 @@ describe("interactive session line", () => {
     type(second.stdin, "hello");
     press(second.stdin, "c", { ctrl: true });
     await expect(p2).resolves.toBeUndefined();
+  });
+});
+
+describe("highlightFiles — see which file Glint found, before you send", () => {
+  const exists = (t: string): boolean => t === "landing-page.md" || t === "src/hero.tsx";
+
+  it("tints a filename that exists in the repo", () => {
+    const out = highlightFiles("review the page using landing-page.md", exists);
+    expect(out).toContain("\x1b[38;2;150;220;255mlanding-page.md\x1b[39m");
+  });
+
+  it("leaves a filename that doesn't exist plain — no false promise", () => {
+    expect(highlightFiles("check ghost.md for issues", exists)).toBe("check ghost.md for issues");
+  });
+
+  it("leaves ordinary words alone", () => {
+    expect(highlightFiles("make the hero bigger", exists)).toBe("make the hero bigger");
+  });
+
+  it("handles a path, not just a bare name", () => {
+    expect(highlightFiles("edit src/hero.tsx", exists)).toContain("\x1b[38;2;150;220;255msrc/hero.tsx");
+  });
+
+  it("is a no-op when no matcher is supplied", () => {
+    expect(highlightFiles("using landing-page.md")).toBe("using landing-page.md");
+  });
+
+  it("adds no visible width, so the cursor stays put", () => {
+    const raw = "using landing-page.md now";
+    const painted = highlightFiles(raw, exists);
+    expect(painted.replace(/\x1b\[[0-9;]*m/g, "")).toBe(raw);
   });
 });

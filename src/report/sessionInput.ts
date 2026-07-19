@@ -15,6 +15,19 @@ export interface SlashCommand {
 }
 
 const MAX_VISIBLE = 8;
+const FILE_HL = "\x1b[38;2;150;220;255m"; // soft cyan — a file Glint located
+const DEFAULT_FG = "\x1b[39m";
+const FILE_TOKEN = /[\w.-]+(?:\/[\w.-]+)*\.[a-zA-Z0-9]{1,6}/g;
+
+/**
+ * Tint filenames that actually exist so you can see Glint found them before you
+ * hit enter. Only the written string grows — the visible length is unchanged,
+ * so the cursor math (which uses the raw buffer) stays correct.
+ */
+export function highlightFiles(buf: string, isFile?: (t: string) => boolean): string {
+  if (!isFile) return buf;
+  return buf.replace(FILE_TOKEN, (m) => (isFile(m) ? `${FILE_HL}${m}${DEFAULT_FG}` : m));
+}
 
 /** Commands matching what's typed so far. Empty once an argument is being typed. */
 export function filterCommands(buf: string, commands: SlashCommand[]): SlashCommand[] {
@@ -25,7 +38,11 @@ export function filterCommands(buf: string, commands: SlashCommand[]): SlashComm
 
 const visibleLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, "").length;
 
-export async function readSessionLine(message: string, commands: SlashCommand[]): Promise<string | undefined> {
+export async function readSessionLine(
+  message: string,
+  commands: SlashCommand[],
+  isFile?: (token: string) => boolean,
+): Promise<string | undefined> {
   const out = process.stdout;
   const stdin = process.stdin;
   if (!stdin.isTTY || !out.isTTY) {
@@ -54,7 +71,7 @@ export async function readSessionLine(message: string, commands: SlashCommand[])
       if (inputRows > 1) out.write(`\x1b[${inputRows - 1}A`);
       out.write("\r\x1b[0J");
 
-      out.write(prompt + buf);
+      out.write(prompt + highlightFiles(buf, isFile));
       const list = matches();
       if (sel >= list.length) sel = Math.max(0, list.length - 1);
       const shown = list.slice(0, MAX_VISIBLE);

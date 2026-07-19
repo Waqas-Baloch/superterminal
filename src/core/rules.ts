@@ -27,21 +27,46 @@ const RULE_FILES = [
 ];
 const RULE_GLOBS = [".cursor/rules/*.md", ".cursor/rules/*.mdc"];
 
+// Project context — what the project *is*, as opposed to rules, which
+// constrain what an agent may do. Always injected when present, for every agent.
+const CONTEXT_FILES = [".glint/context.md", "context.md", "CONTEXT.md", "docs/context.md", "PROJECT.md"];
+
+export async function loadContext(root: string): Promise<LoadedRules> {
+  return readAll(root, CONTEXT_FILES);
+}
+
+export function renderContextSection(ctx: LoadedRules): string {
+  if (!ctx.text) return "";
+  return (
+    `## Project context\n` +
+    `What this project is and how it works. Treat it as background for every decision, ` +
+    `whichever agent you are (from ${ctx.sources.join(", ")}).\n\n${ctx.text}`
+  );
+}
+
 /** Gather every rules source in the repo into one block for the manifest. */
 export async function loadRules(root: string): Promise<LoadedRules> {
   const candidates = [...RULE_FILES];
   for (const glob of RULE_GLOBS) {
     candidates.push(...(await fg(glob, { cwd: root, dot: true }).catch(() => [])));
   }
+  return readAll(root, candidates);
+}
 
+async function readAll(root: string, candidates: string[]): Promise<LoadedRules> {
   const parts: string[] = [];
   const sources: string[] = [];
   const seen = new Set<string>();
+  // macOS and Windows are case-insensitive, so `context.md` and `CONTEXT.md`
+  // are one file read twice. Dedupe on content, not just on the name, or the
+  // same instructions land in the manifest twice.
+  const seenContent = new Set<string>();
   for (const rel of candidates) {
     if (seen.has(rel)) continue;
     seen.add(rel);
     const content = (await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "")).trim();
-    if (!content) continue;
+    if (!content || seenContent.has(content)) continue;
+    seenContent.add(content);
     sources.push(rel);
     parts.push(`### From ${rel}\n${content}`);
   }

@@ -11,6 +11,7 @@ import { selectFiles, fullSelection } from "../core/selector";
 import { assessTask, runQuestions, compileTask, type EditScope } from "../core/clarify";
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
+import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { isModifyAction, targetDescriptors, findMissingTargets } from "../core/preflight";
@@ -282,6 +283,7 @@ async function retargetRoot(ctx: ExecContext, newRoot: string): Promise<void> {
   ctx.budget = ctx.opts.budget ? Number(ctx.opts.budget) : ctx.config.budgetTokens;
   ctx.model = ctx.opts.model ?? ctx.config.model;
   ctx.memory = undefined; // follow-up context is project-specific
+  forgetFileNames(newRoot); // re-scan filenames for the new project
   log.success(`Now working in ${pc.bold(homeRelative(newRoot))}`);
 }
 
@@ -301,9 +303,13 @@ function printSessionHelp(): void {
 }
 
 async function promptNextTask(first: boolean): Promise<string | undefined> {
+  // Filenames you type get tinted if they exist, so you can see Glint found
+  // them before submitting. Cached per repo — a glob per keystroke would crawl.
+  const known = await repoFileNames(process.cwd()).catch(() => new Set<string>());
+  const isFile = (t: string): boolean => known.has(t) || known.has(nodePath.basename(t));
   for (;;) {
     // Type freely for a task; typing "/" pops the command dropdown instantly.
-    const next = await readSessionLine(first ? "What should I do?" : "Next task", MENU);
+    const next = await readSessionLine(first ? "What should I do?" : "Next task", MENU, isFile);
     if (next === undefined) return undefined; // Ctrl-C
     const task = next.trim();
     if (["/exit", "/quit", "/q", "exit", "quit"].includes(task.toLowerCase())) return undefined;
