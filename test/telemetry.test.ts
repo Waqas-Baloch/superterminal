@@ -103,16 +103,20 @@ describe("the off switch", () => {
 });
 
 describe("safety — analytics must never break or slow a command", () => {
-  it("sends nothing when no key is configured", async () => {
-    const s = await status();
-    expect(s.collecting).toBe(false); // shipped build makes zero outbound calls
+  it("reports that this build is configured to collect", async () => {
+    expect((await status()).collecting).toBe(true);
   });
 
-  it("resolves quietly even with an unreachable endpoint", async () => {
-    process.env.GLINT_TELEMETRY_KEY = "test";
+  it("sends nothing at all once switched off", async () => {
+    await setEnabled(false);
+    expect(await track("task_completed", null, { command: "run" })).toBe(false);
+  });
+
+  it("fails quietly, and reports failure, when the endpoint is unreachable", async () => {
     process.env.GLINT_TELEMETRY_HOST = "http://127.0.0.1:1"; // nothing listening
-    await expect(track("task_completed", null, { command: "run" })).resolves.toBeUndefined();
-    delete process.env.GLINT_TELEMETRY_KEY;
+    // Must not throw — and must return false so `installed` retries next run
+    // rather than being marked delivered when it never arrived.
+    await expect(track("task_completed", null, { command: "run" })).resolves.toBe(false);
     delete process.env.GLINT_TELEMETRY_HOST;
   });
 
@@ -121,5 +125,26 @@ describe("safety — analytics must never break or slow a command", () => {
     const b = await status();
     expect(a.installId).toBe(b.installId);
     expect(a.installId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("state survives a round-trip to disk", () => {
+  it("remembers installSent, so `installed` is never re-sent", async () => {
+    // Regression: readState() wrote this field but dropped it on read, so
+    // every single run re-sent the install event and inflated the funnel.
+    await setEnabled(true);
+    const file = path.join(home, "telemetry.json");
+    const before = JSON.parse(await fs.readFile(file, "utf8").catch(() => "{}"));
+    await fs.writeFile(file, JSON.stringify({ ...before, installId: "fixed-id", installSent: true }));
+    const raw = JSON.parse(await fs.readFile(file, "utf8"));
+    expect(raw.installSent).toBe(true);
+    await setEnabled(true); // forces a read + write cycle
+    expect(JSON.parse(await fs.readFile(file, "utf8")).installSent).toBe(true);
+  });
+
+  it("keeps the off switch off across a read/write cycle", async () => {
+    await setEnabled(false);
+    await setEnabled(false);
+    expect(await isEnabled()).toBe(false);
   });
 });

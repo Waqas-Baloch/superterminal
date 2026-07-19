@@ -102,8 +102,10 @@ program
   .description("clear the choices Glint has learned for this repo (.glint/intent.json)")
   .action(forgetCommand);
 
-// Counted once per machine, whichever command brought them here.
-void trackInstallOnce();
+// Counted once per machine, whichever command brought them here. Awaited so a
+// command that exits immediately can't kill the request mid-flight; it's a
+// no-op on every run after the first.
+await trackInstallOnce();
 
 // Bare `glint` (no command) shows the welcome box (wordmark + status + commands).
 if (process.argv.length <= 2) {

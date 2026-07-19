@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import crypto from "node:crypto";
 import { glintHome } from "./globalConfig";
+import { VERSION } from "../version";
 
 // Anonymous usage counts, so we can see whether people get Glint working —
 // installs, setup completion, tasks finished, and whether they come back.
@@ -11,14 +12,15 @@ import { glintHome } from "./globalConfig";
 // no paths, no code, no diffs, no repo names. Only the fixed field names in
 // ALLOWED, carrying primitives, and only values Glint itself chose.
 //
-// Paste a PostHog project key here to turn collection on. Left empty, every
-// function below is a no-op — the CLI ships making zero outbound calls.
-const BUILT_IN_KEY = ""; // ← paste your PostHog project key here to switch collection on
+// PostHog project key. Public by design: it can only write events in, never
+// read anything out, which is why it ships inside the package. (The secret
+// counterpart is a personal key, phx_ — that one must never appear here.)
+const BUILT_IN_KEY = "phc_tD3DNhmLnyV5MuhxRXLWVGzAcizSc5Jgav2FoqUZHFCK";
 
 // Read at call time, not import time: an env override has to work, and a test
 // that sets one has to actually exercise the network path.
 const projectKey = (): string => process.env.GLINT_TELEMETRY_KEY ?? BUILT_IN_KEY;
-const host = (): string => process.env.GLINT_TELEMETRY_HOST ?? "https://us.i.posthog.com";
+const host = (): string => process.env.GLINT_TELEMETRY_HOST ?? "https://eu.i.posthog.com"; // EU project
 const TIMEOUT_MS = 800; // never make someone wait on analytics
 
 export type TelemetryEvent =
@@ -105,6 +107,7 @@ async function readState(): Promise<Ids> {
         installId: raw.installId,
         enabled: raw.enabled !== false,
         notified: raw.notified === true,
+        installSent: raw.installSent === true, // dropping this re-sent "installed" every run
         repos: typeof raw.repos === "object" && raw.repos ? raw.repos : {},
       };
     }
@@ -172,8 +175,11 @@ export async function trackInstallOnce(): Promise<void> {
     if (!projectKey() || !(await isEnabled())) return;
     const s = await readState();
     if (s.installSent) return;
-    await writeState({ ...s, installSent: true });
-    await track("installed", null);
+    // Persist ONLY after delivery. Marking first meant a fast-exiting command
+    // (`glint --version`, `glint --help`) could kill the request in flight and
+    // still record it as sent — silently losing the funnel's denominator with
+    // no retry. Offline first runs now simply try again next time.
+    if (await track("installed", null)) await writeState({ ...s, installSent: true });
   } catch {
     /* never block startup */
   }
@@ -196,11 +202,11 @@ export async function firstRunNotice(): Promise<string | null> {
  * Record an event. Fire-and-forget: bounded by a short timeout, never throws,
  * never blocks a command, and silently does nothing when unconfigured.
  */
-export async function track(event: TelemetryEvent, root: string | null, props: Props = {}): Promise<void> {
+export async function track(event: TelemetryEvent, root: string | null, props: Props = {}): Promise<boolean> {
   try {
     const key = projectKey();
-    if (!key) return;
-    if (!(await isEnabled())) return;
+    if (!key) return false;
+    if (!(await isEnabled())) return false;
     const s = await readState();
 
     const payload = {
@@ -210,7 +216,7 @@ export async function track(event: TelemetryEvent, root: string | null, props: P
       properties: {
         ...scrub({
           ...props,
-          version: process.env.npm_package_version,
+          version: VERSION, // npm_package_version is unset for a real CLI install
           os: process.platform,
           node: process.versions.node.split(".")[0],
         }),
@@ -228,7 +234,9 @@ export async function track(event: TelemetryEvent, root: string | null, props: P
       body: JSON.stringify(payload),
       signal: ctl.signal,
     }).finally(() => clearTimeout(timer));
+    return true;
   } catch {
     /* analytics must never surface to the user or fail a command */
+    return false;
   }
 }
