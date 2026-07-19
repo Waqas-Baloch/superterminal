@@ -55,15 +55,27 @@ export function semanticDiff(before: Map<string, string>, after: Map<string, str
     }
   }
 
-  // ── Files that changed on disk but carry no semantic change = reformat ────
+  // ── Files that changed on disk but carry no symbol/copy change ────────────
+  // Only call it a reformat when the content is identical once whitespace is
+  // normalized. Otherwise something real changed that the graph doesn't model
+  // (CSS declarations, attributes, config values) — say that plainly instead of
+  // claiming "nothing changed", which is worse than saying nothing.
   for (const [file, afterText] of after) {
     const beforeText = before.get(file);
     if (beforeText === undefined || beforeText === afterText) continue;
     const touched = changes.some((c) => c.summary.includes(file));
+    if (touched) continue;
     const sameSymbols = sameNames(gb.symbols, ga.symbols, file);
     const sameText = setEq(new Set(elementTexts(gb, file)), new Set(elementTexts(ga, file)));
-    if (!touched && sameSymbols && sameText) {
+    if (!sameSymbols || !sameText) continue;
+    if (squash(beforeText) === squash(afterText)) {
       changes.push({ kind: "reformat", summary: `${file}: reformatted only — no code or copy changed`, warn: true });
+    } else {
+      changes.push({
+        kind: "retext",
+        summary: `${file}: changed — styles/attributes only (no symbols or copy affected)`,
+        warn: false,
+      });
     }
   }
 
@@ -101,6 +113,19 @@ function sameNames(before: SymbolNode[], after: SymbolNode[], file: string): boo
 
 function setEq<T>(a: Set<T>, b: Set<T>): boolean {
   return a.size === b.size && [...a].every((x) => b.has(x));
+}
+
+/**
+ * Strip everything a formatter is allowed to change — whitespace, statement
+ * terminators, trailing commas. Equal after this means the edit really was just
+ * formatting; different means something real changed, even if it's a CSS
+ * declaration or an attribute the graph doesn't model.
+ */
+function squash(s: string): string {
+  return s
+    .replace(/\s+/g, "")
+    .replace(/;/g, "")
+    .replace(/,(?=[)\]}])/g, "");
 }
 
 /** Rough count of how many times a bare identifier still appears in the tree. */

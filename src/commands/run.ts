@@ -22,6 +22,8 @@ import { VERSION } from "../version";
 import { switchCommand } from "./switch";
 import { connectCommand } from "./connect";
 import { planCommand } from "./plan";
+import { flowCommand } from "./flow";
+import { compareCommand } from "./compare";
 import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
@@ -130,6 +132,18 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
       } catch (err) {
         log.error(err instanceof Error ? err.message : String(err));
       }
+    } else if (cmd.type === "flow") {
+      try {
+        await flowCommand(cmd.steps, { budget: ctx.opts.budget });
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+      }
+    } else if (cmd.type === "compare") {
+      try {
+        await compareCommand(cmd.task, { budget: ctx.opts.budget });
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+      }
     } else if (cmd.type === "task") {
       count++;
       try {
@@ -148,6 +162,8 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
 type SessionCommand =
   | { type: "task"; task: string }
   | { type: "plan"; task: string }
+  | { type: "flow"; steps: string }
+  | { type: "compare"; task: string }
   | { type: "switch" }
   | { type: "connect" }
   | { type: "search" }
@@ -164,12 +180,24 @@ type SessionCommand =
  */
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|glint\s+)(run|plan|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
+  const m = raw.match(/^(?:\/|glint\s+)(run|plan|flow|compare|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
-    const rest = m[2].trim();
+    // People naturally type `glint flow "…"` inside the session — drop the
+    // quotes so they don't leak into the first and last step.
+    const rest = m[2].trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
     const nav = navCommand(name);
     if (nav) return nav;
+    if (name === "flow") {
+      return rest
+        ? { type: "flow", steps: rest }
+        : { type: "hint", message: `${pc.cyan("/flow")} needs steps — e.g. ${pc.bold('/flow audit auth with claude, then fix it with cursor')}` };
+    }
+    if (name === "compare") {
+      return rest
+        ? { type: "compare", task: rest }
+        : { type: "hint", message: `${pc.cyan("/compare")} needs a task — e.g. ${pc.bold('/compare add rate limiting')}` };
+    }
     if (name === "plan") {
       return rest
         ? { type: "plan", task: rest }
@@ -195,6 +223,8 @@ export function interpret(input: string): SessionCommand {
 // Session commands, in menu order. `arg` marks ones that need a follow-up (task).
 const MENU: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview a task — don't send it", arg: true },
+  { value: "flow", title: "/flow", description: "multi-step task across agents", arg: true },
+  { value: "compare", title: "/compare", description: "same task through every agent", arg: true },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
   { value: "connect", title: "/connect", description: "set up or re-authenticate a provider" },
@@ -213,10 +243,15 @@ async function showCommandMenu(): Promise<SessionCommand> {
     hint: "↑↓ to move · enter to pick · esc to cancel",
   });
   if (cmd === undefined) return { type: "hint", message: "" }; // cancelled — back to the prompt
-  if (cmd === "plan") {
-    const { task } = await prompts({ type: "text", name: "task", message: "Task to preview" });
-    const t = task ? String(task).trim() : "";
-    return t ? { type: "plan", task: t } : { type: "hint", message: "" };
+  const entry = MENU.find((m) => m.value === cmd);
+  if (entry?.arg) {
+    const label = cmd === "flow" ? "Steps" : "Task";
+    const { arg } = await prompts({ type: "text", name: "arg", message: label });
+    const a = arg ? String(arg).trim() : "";
+    if (!a) return { type: "hint", message: "" };
+    if (cmd === "flow") return { type: "flow", steps: a };
+    if (cmd === "compare") return { type: "compare", task: a };
+    return { type: "plan", task: a };
   }
   return { type: cmd } as SessionCommand;
 }
@@ -254,6 +289,8 @@ function printSessionHelp(): void {
   log.info("");
   log.info(pc.bold("In-session commands:"));
   log.info(`  ${pc.cyan("/plan <task>")}   preview what would be sent, without sending`);
+  log.info(`  ${pc.cyan("/flow")}          <steps>  multi-step task routed across agents`);
+  log.info(`  ${pc.cyan("/compare")}       <task>   run the same task through every agent`);
   log.info(`  ${pc.cyan("/switch")}        change coding agent (Claude Code / Cursor / ChatGPT / API)`);
   log.info(`  ${pc.cyan("/search")}        switch to a different project folder`);
   log.info(`  ${pc.cyan("/connect")}       set up or re-authenticate a provider`);

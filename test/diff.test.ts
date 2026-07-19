@@ -43,6 +43,20 @@ describe("semantic diff — review by meaning, not lines", () => {
     expect(reformat!.warn).toBe(true);
   });
 
+  it("does NOT call a real CSS change a reformat (the sticky-header false alarm)", () => {
+    const before = new Map([
+      ["index.html", "<body><style>\n  h1 { font-size: 28px; font-weight: 800; }\n</style></body>"],
+    ]);
+    const after = new Map([
+      ["index.html", "<body><style>\n  h1 { font-size: 28px; font-weight: 800; position: sticky; }\n</style></body>"],
+    ]);
+    const changes = semanticDiff(before, after);
+    expect(changes.find((c) => c.kind === "reformat")).toBeUndefined(); // must not claim "nothing changed"
+    const noted = changes.find((c) => c.summary.includes("index.html"));
+    expect(noted?.summary).toContain("styles/attributes only");
+    expect(noted?.warn).toBe(false); // a real, intended change — not a warning
+  });
+
   it("reports nothing when nothing changed", () => {
     const same = new Map([["src/util.ts", "export const x = 1;\n"]]);
     expect(semanticDiff(same, new Map(same))).toEqual([]);
