@@ -80,3 +80,47 @@ describe("describeStep — the preview must name the agent that will really run"
     expect(describeStep(step, 0, "Claude Code")).toBe("1. tidy the header  → Claude Code");
   });
 });
+
+describe("agent routing — the step must run on the agent you named", () => {
+  const routes = (input: string) => parseFlow(input).map((s) => s.agent);
+
+  it("is case-insensitive across every spelling", () => {
+    expect(routes("a with Claude Code, then b with ChatGPT")).toEqual(["claude-code", "codex"]);
+    expect(routes("a with CLAUDE, then b with CODEX")).toEqual(["claude-code", "codex"]);
+    expect(routes("a with claude, then b with chatgpt")).toEqual(["claude-code", "codex"]);
+    expect(routes("a with ChatGPT Codex, then b with claude-code")).toEqual(["codex", "claude-code"]);
+    expect(routes("a with GPT, then b with OpenAI")).toEqual(["codex", "codex"]);
+  });
+
+  it("reads 'use X to …' and 'ask X to …', not just 'with X'", () => {
+    expect(routes("Use Claude Code to review it then use ChatGPT to fix it")).toEqual(["claude-code", "codex"]);
+    expect(routes("ask claude to audit, then ask codex to fix")).toEqual(["claude-code", "codex"]);
+    expect(routes("have Cursor refactor it then let Claude Code verify")).toEqual(["cursor", "claude-code"]);
+  });
+
+  it("reads 'X does …' and 'X: …'", () => {
+    expect(routes("claude reviews the page, then codex implements fixes")).toEqual(["claude-code", "codex"]);
+    expect(routes("codex: fix the header, then claude: verify it")).toEqual(["codex", "claude-code"]);
+  });
+
+  it("strips the agent phrase out of the task text", () => {
+    expect(parseFlow("Use Claude Code to review index.html")[0].task).toBe("review index.html");
+    expect(parseFlow("ask codex to fix it")[0].task).toBe("fix it");
+    expect(parseFlow("codex: fix the header")[0].task).toBe("fix the header");
+  });
+
+  it("splits on arrows and numbered lists, not just 'then'", () => {
+    expect(routes("1. review with claude 2. fix with codex")).toEqual(["claude-code", "codex"]);
+    expect(routes("review with claude -> fix with codex")).toEqual(["claude-code", "codex"]);
+  });
+
+  it("does NOT route on a bare mention — that's the subject, not the router", () => {
+    // Would otherwise hijack the step to Cursor / Codex and run the wrong agent.
+    expect(routes("review with claude, then fix the cursor position in the editor")).toEqual([
+      "claude-code",
+      null,
+    ]);
+    expect(routes("review the gpt prompt templates")).toEqual([null]);
+    expect(routes("make the hero bigger")).toEqual([null]);
+  });
+});

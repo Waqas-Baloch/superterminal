@@ -144,7 +144,10 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     // A named skill is applied even if the matcher wouldn't have picked it —
     // you asked for it explicitly.
     const named = step.skill
-      ? skills.find((s) => s.name.toLowerCase() === step.skill!.toLowerCase() || s.source.includes(step.skill!))
+      ? skills.find((s) => {
+          const want = step.skill!.toLowerCase();
+          return s.name.toLowerCase() === want || s.source.toLowerCase().includes(want);
+        })
       : undefined;
     if (step.skill && !named) log.warn(`  Skill "${step.skill}" not found — continuing without it.`);
 
