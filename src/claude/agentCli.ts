@@ -129,6 +129,12 @@ export interface AgentUsage {
   costUsd?: number;
 }
 
+/** What a run produced: real usage plus the agent's narration (for flow steps). */
+export interface AgentRunResult {
+  usage: AgentUsage | null;
+  text: string;
+}
+
 /**
  * Passthrough providers: the manifest becomes the prompt for a headless agent
  * CLI run. The agent brings its own auth (subscriptions work — no API key),
@@ -231,6 +237,12 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
   },
 };
 
+/** Is this agent's CLI actually on PATH? */
+export async function isAgentInstalled(bin: string): Promise<boolean> {
+  const r = await execa("which", [bin], { reject: false, env: { ...process.env, PATH: pathWithLocalBin() } }).catch(() => null);
+  return r !== null && r.exitCode === 0;
+}
+
 /** Installers often drop binaries in ~/.local/bin, which may not be on PATH yet. */
 export function pathWithLocalBin(): string {
   const local = nodePath.join(os.homedir(), ".local", "bin");
@@ -244,7 +256,7 @@ export async function runAgent(
   prompt: string,
   onFirstOutput?: () => void,
   surgical = false,
-): Promise<AgentUsage | null> {
+): Promise<AgentRunResult> {
   return invoke(agent, root, agent.runArgs(prompt), onFirstOutput, surgical);
 }
 
@@ -254,7 +266,7 @@ export async function continueAgent(
   prompt: string,
   onFirstOutput?: () => void,
   surgical = false,
-): Promise<AgentUsage | null> {
+): Promise<AgentRunResult> {
   return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput, surgical);
 }
 
@@ -264,7 +276,7 @@ async function invoke(
   args: string[],
   onFirstOutput?: () => void,
   surgical = false,
-): Promise<AgentUsage | null> {
+): Promise<AgentRunResult> {
   // Relay the agent's output live rather than inheriting it. Headless/print mode
   // has no interactive TUI to preserve — it's a stream. In plain mode we forward
   // bytes as-is; when the agent can emit line-delimited JSON (jsonUsage), we
@@ -293,6 +305,7 @@ async function invoke(
     }
   };
   let usage: AgentUsage | null = null;
+  let text = ""; // the agent's narration — suppressed on screen, kept for flow steps
   const status = jsonMode ? statusLine() : null;
 
   if (jsonMode && status) {
@@ -315,7 +328,8 @@ async function invoke(
           status.stop();
           process.stdout.write(`${line}\n`);
         }
-        // r.text (narration) is intentionally suppressed during the run.
+        // r.text (narration) is suppressed on screen but captured for flows.
+        if (r?.text) text += r.text.endsWith("\n") ? r.text : `${r.text}\n`;
         if (r?.usage) usage = r.usage;
       }
     });
@@ -340,7 +354,7 @@ async function invoke(
   if (result.exitCode !== 0) {
     throw new Error(`${agent.bin} exited with code ${result.exitCode} (see its output above)`);
   }
-  return usage;
+  return { usage, text: text.trim() };
 }
 
 // --- git helpers (change tracking + undo for passthrough providers) --------

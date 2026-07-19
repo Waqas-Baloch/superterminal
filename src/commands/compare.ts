@@ -73,7 +73,7 @@ export async function compareCommand(task: string, opts: { budget?: string } = {
     let usage: AgentUsage | null = null;
     let error: string | null = null;
     try {
-      usage = await runAgent(agent, root, prompt, () => wave.stop());
+      usage = (await runAgent(agent, root, prompt, () => wave.stop())).usage;
       wave.stop();
     } catch (e) {
       wave.stop();

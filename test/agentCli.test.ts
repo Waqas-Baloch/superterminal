@@ -217,7 +217,7 @@ describe("live output relay", () => {
     };
     let usage;
     try {
-      usage = await runAgent(jsonAgent, process.cwd(), "ignored");
+      usage = (await runAgent(jsonAgent, process.cwd(), "ignored")).usage;
     } finally {
       (process.stdout as unknown as { write: unknown }).write = write;
     }

@@ -6,6 +6,7 @@ import { revertCommand } from "./commands/revert";
 import { forgetCommand } from "./commands/forget";
 import { initCommand } from "./commands/init";
 import { compareCommand } from "./commands/compare";
+import { flowCommand } from "./commands/flow";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
@@ -67,6 +68,14 @@ program
   .argument("[query]", "optional name filter, e.g. glint search shop")
   .description("find a project folder and start a session there")
   .action(searchCommand);
+
+program
+  .command("flow")
+  .argument("<steps>", 'multi-step task, e.g. "audit auth with claude, then fix it with cursor"')
+  .option("--budget <tokens>", "manifest token budget per step")
+  .option("-y, --yes", "skip the plan confirmation")
+  .description("run a multi-step task, routing each step to the agent you name")
+  .action(flowCommand);
 
 program
   .command("compare")

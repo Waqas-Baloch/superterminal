@@ -772,13 +772,15 @@ async function runViaAgentCli(
   let usage: AgentUsage | null = null;
   const wave = pixelWave(`${agent.title} is thinking…`);
   try {
-    usage = await runAgent(
-      agent,
-      root,
-      `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.${surgicalNudge}`,
-      () => wave.stop(),
-      surgical,
-    );
+    usage = (
+      await runAgent(
+        agent,
+        root,
+        `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.${surgicalNudge}`,
+        () => wave.stop(),
+        surgical,
+      )
+    ).usage;
     wave.stop(); // agent finished without ever printing
   } catch (err) {
     wave.stop();
@@ -802,7 +804,7 @@ async function runViaAgentCli(
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
       const repairWave = pixelWave(`${agent.title} is thinking…`);
       try {
-        usage = mergeUsage(usage, await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop(), surgical));
+        usage = mergeUsage(usage, (await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop(), surgical)).usage);
         repairWave.stop();
       } catch (err) {
         repairWave.stop();
