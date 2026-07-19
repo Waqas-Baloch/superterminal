@@ -186,7 +186,12 @@ const DESCRIPTION =
 export async function renderHeader(version: string, mode: "welcome" | "session" = "welcome"): Promise<string> {
   const conn = await connectionInfo();
   const name = await userName();
-  const art = iconRows(8);
+  // 10 rows, not 8: the bar spans only ~19% of the icon's height, so at 8 rows
+  // it lands mostly on pixel boundaries and renders as a faint smudge (8 solid
+  // cells against 12 half-lit). At 10 it resolves to 22 solid and 2 half-lit —
+  // the slant reads cleanly. Larger sizes blur again as the edges fall
+  // mid-pixel once more.
+  const art = iconRows(10);
   // Width must come from the VISIBLE length — every icon row carries two ANSI
   // colour codes per cell, so .length is many times the rendered width.
   const artW = vlen(art[0]);
