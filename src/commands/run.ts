@@ -101,7 +101,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   log.info(await renderHeader(VERSION, "session"));
-  log.dim("  Type a task — or just / to pick a command.");
+  log.dim("  Type a task — / for commands · Esc to exit.");
   log.info("");
 
   let input = taskArg ?? (await promptNextTask(true));

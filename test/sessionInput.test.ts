@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { filterCommands, highlightFiles, readSessionLine, type SlashCommand } from "../src/report/sessionInput";
+import { filterCommands, highlightFiles, applyEdit, readSessionLine, type SlashCommand } from "../src/report/sessionInput";
 
 const CMDS: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview", arg: true },
@@ -162,5 +162,57 @@ describe("highlightFiles — see which file Glint found, before you send", () =>
     const raw = "using landing-page.md now";
     const painted = highlightFiles(raw, exists);
     expect(painted.replace(/\x1b\[[0-9;]*m/g, "")).toBe(raw);
+  });
+});
+
+describe("cursor editing — a prompt you can actually fix mid-sentence", () => {
+  const k = (name: string, mod: Partial<{ ctrl: boolean; meta: boolean }> = {}) =>
+    ({ name, ctrl: false, meta: false, shift: false, sequence: "", ...mod }) as any;
+  const edit = (s: { buf: string; pos: number }, key: any, str?: string) => applyEdit(s, key, str)!;
+
+  it("moves left and right without changing the text", () => {
+    const s = { buf: "hello", pos: 5 };
+    expect(edit(s, k("left"))).toEqual({ buf: "hello", pos: 4 });
+    expect(edit({ buf: "hello", pos: 2 }, k("right"))).toEqual({ buf: "hello", pos: 3 });
+  });
+
+  it("stops at both ends instead of running off", () => {
+    expect(edit({ buf: "hi", pos: 0 }, k("left")).pos).toBe(0);
+    expect(edit({ buf: "hi", pos: 2 }, k("right")).pos).toBe(2);
+  });
+
+  it("inserts typed characters AT the caret, not at the end", () => {
+    // The old input appended blindly — this is the bug being fixed.
+    expect(edit({ buf: "helo", pos: 3 }, k(""), "l")).toEqual({ buf: "hello", pos: 4 });
+  });
+
+  it("backspaces the character before the caret, keeping the tail", () => {
+    expect(edit({ buf: "helllo", pos: 4 }, k("backspace"))).toEqual({ buf: "hello", pos: 3 });
+    expect(edit({ buf: "abc", pos: 0 }, k("backspace"))).toEqual({ buf: "abc", pos: 0 });
+  });
+
+  it("forward-deletes with Delete", () => {
+    expect(edit({ buf: "hello", pos: 0 }, k("delete"))).toEqual({ buf: "ello", pos: 0 });
+    expect(edit({ buf: "hi", pos: 2 }, k("delete"))).toEqual({ buf: "hi", pos: 2 });
+  });
+
+  it("jumps by word with ⌥←/⌥→", () => {
+    expect(edit({ buf: "fix the hero", pos: 12 }, k("left", { meta: true })).pos).toBe(8);
+    expect(edit({ buf: "fix the hero", pos: 0 }, k("right", { meta: true })).pos).toBe(3);
+  });
+
+  it("supports Home/End and the shell shortcuts", () => {
+    expect(edit({ buf: "abc", pos: 3 }, k("home")).pos).toBe(0);
+    expect(edit({ buf: "abc", pos: 0 }, k("end")).pos).toBe(3);
+    expect(edit({ buf: "abc", pos: 3 }, k("a", { ctrl: true })).pos).toBe(0);
+    expect(edit({ buf: "abc", pos: 0 }, k("e", { ctrl: true })).pos).toBe(3);
+    expect(edit({ buf: "keep this", pos: 4 }, k("k", { ctrl: true }))).toEqual({ buf: "keep", pos: 4 });
+    expect(edit({ buf: "drop that", pos: 9 }, k("w", { ctrl: true }))).toEqual({ buf: "drop ", pos: 5 });
+    expect(edit({ buf: "all gone", pos: 8 }, k("u", { ctrl: true }))).toEqual({ buf: "", pos: 0 });
+  });
+
+  it("returns null for keys it doesn't own, so Enter/Esc still reach the caller", () => {
+    expect(applyEdit({ buf: "x", pos: 1 }, k("return"))).toBeNull();
+    expect(applyEdit({ buf: "x", pos: 1 }, k("escape"))).toBeNull();
   });
 });
