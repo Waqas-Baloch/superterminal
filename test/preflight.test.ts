@@ -26,7 +26,7 @@ describe("targetDescriptors — the specific things a task names", () => {
 describe("findMissingTargets — the token-saving preflight", () => {
   let dir: string;
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-preflight-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-preflight-"));
     await fs.writeFile(path.join(dir, "index.html"), '<body><nav><button class="cta">Get it Now</button></nav></body>');
     await fs.writeFile(path.join(dir, "billing.ts"), "export function calcTotal(x: number) { return x; }\n");
   });

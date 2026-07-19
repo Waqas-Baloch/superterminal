@@ -32,7 +32,7 @@ export interface Selection {
 const EXCLUDE_FROM_SELECTION = new Set(["package.json", "tsconfig.json"]);
 
 /**
- * Select and rank repo context for a task, per the Glint Context Ranking
+ * Select and rank repo context for a task, per the Super Terminal Context Ranking
  * Specification (see core/ranking/). Thin adapter: builds the graph-derived
  * candidate pool via rankContext(), then reshapes it into the Selection
  * type the CLI/manifest/UI layers consume.

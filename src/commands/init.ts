@@ -3,7 +3,7 @@ import nodePath from "node:path";
 import pc from "picocolors";
 import { loadRules } from "../core/rules";
 import { log } from "../util/logger";
-import { stateDir, STATE_DIR, findStateFile } from "../util/paths";
+import { stateDir, STATE_DIR } from "../util/paths";
 
 // Directories that usually hold generated/vendored output — worth protecting
 // by default so an agent regenerates from source instead of hand-editing them.
@@ -28,16 +28,6 @@ export async function initCommand(): Promise<void> {
 
   if (await exists(rulesPath)) {
     log.info(`${pc.bold(`${STATE_DIR}/rules.md`)} already exists — edit it to change your rules.`);
-    return;
-  }
-
-  // A rules file from an earlier brand is still read, so writing a second one
-  // would leave two live rule files with no indication which is in effect.
-  const legacy = await findStateFile(root, "rules.md");
-  if (legacy) {
-    const rel = nodePath.relative(root, legacy);
-    log.info(`${pc.bold(rel)} already exists and is still applied to every agent.`);
-    log.dim(`  To adopt the current location, move it: mv ${rel} ${STATE_DIR}/rules.md`);
     return;
   }
 

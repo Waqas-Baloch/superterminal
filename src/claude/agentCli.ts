@@ -138,7 +138,7 @@ export interface AgentRunResult {
 /**
  * Passthrough providers: the manifest becomes the prompt for a headless agent
  * CLI run. The agent brings its own auth (subscriptions work — no API key),
- * applies edits itself, and glint tracks/undoes changes through git.
+ * applies edits itself, and Super Terminal tracks/undoes changes through git.
  */
 export interface AgentCliDef {
   id: AgentCliId;
@@ -152,7 +152,7 @@ export interface AgentCliDef {
   runArgs: (prompt: string) => string[];
   continueArgs: (prompt: string) => string[];
   // Some agents can emit structured output carrying their true token usage. When
-  // set, Glint runs in that mode, renders the text itself, and captures usage —
+  // set, Super Terminal runs in that mode, renders the text itself, and captures usage —
   // the accurate, subscription-friendly number (the agent counted it, not us).
   jsonUsage?: {
     args: string[]; // extra flags to switch the CLI into line-delimited JSON
@@ -382,7 +382,7 @@ export async function gitBaselineCommit(root: string): Promise<void> {
   await execa("git", ["add", "-A"], { cwd: root, reject: false });
   await execa(
     "git",
-    ["-c", "user.email=glint@local", "-c", "user.name=glint", "commit", "-qm", "glint: baseline before run", "--no-verify"],
+    ["-c", "user.email=super-t@local", "-c", "user.name=super-t", "commit", "-qm", "super-t: baseline before run", "--no-verify"],
     { cwd: root, reject: false },
   );
 }

@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import fg from "fast-glob";
 import ignore from "ignore";
-import type { GlintConfig } from "../util/config";
+import type { ProjectConfig } from "../util/config";
 import { STATE_IGNORE_GLOBS, stateDir } from "../util/paths";
 
 export interface IndexedFile {
@@ -51,7 +51,7 @@ const ALWAYS_EXCLUDE = [
 
 const MAX_FILE_BYTES = 512 * 1024;
 
-export async function indexRepo(root: string, config: GlintConfig): Promise<RepoIndex> {
+export async function indexRepo(root: string, config: ProjectConfig): Promise<RepoIndex> {
   const entries = await fg([...CODE_GLOBS, ...config.include], {
     cwd: root,
     ignore: [...ALWAYS_EXCLUDE, ...config.exclude],

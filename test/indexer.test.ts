@@ -9,7 +9,7 @@ import { STATE_DIR } from "../src/util/paths";
 let dir: string;
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-test-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-test-"));
   await fs.mkdir(path.join(dir, "src"), { recursive: true });
   await fs.mkdir(path.join(dir, "node_modules", "pkg"), { recursive: true });
   await fs.writeFile(path.join(dir, "src", "app.tsx"), "export const App = () => null;\n");

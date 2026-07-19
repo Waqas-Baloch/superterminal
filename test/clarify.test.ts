@@ -23,7 +23,7 @@ function makeSelection(paths: string[], task: string): Selection {
 }
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-clarify-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-clarify-"));
   await fs.writeFile(
     path.join(dir, "index.html"),
     [
@@ -39,7 +39,7 @@ beforeAll(async () => {
   await fs.writeFile(path.join(dir, "single.html"), '<body><button class="only">Only one</button></body>');
 
   // A real-world home page: the named target ("Try Now") is a LINK, and the
-  // only <button>s on the page are unrelated. Naming it must not make Glint
+  // only <button>s on the page are unrelated. Naming it must not make Super Terminal
   // offer those buttons.
   await fs.writeFile(
     path.join(dir, "home.html"),
@@ -212,7 +212,7 @@ describe("duplicate-target detection — the same copy in several places", () =>
   });
 });
 
-describe("rankingIsConfident — the gate that keeps Glint from over-asking", () => {
+describe("rankingIsConfident — the gate that keeps Super Terminal from over-asking", () => {
   function withAnchors(anchors: Anchor[], primaryCount: number): Selection {
     const sel = makeSelection(Array.from({ length: primaryCount }, (_, i) => `f${i}.tsx`), "task");
     sel.anchors = anchors;
@@ -240,7 +240,7 @@ describe("rankingIsConfident — the gate that keeps Glint from over-asking", ()
 describe("impact confirmation — destructive edit to load-bearing code", () => {
   let sdir: string;
   beforeAll(async () => {
-    sdir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-impact-"));
+    sdir = await fs.mkdtemp(path.join(os.tmpdir(), "st-impact-"));
     await fs.mkdir(path.join(sdir, "src"), { recursive: true });
     await fs.writeFile(path.join(sdir, "src", "format.ts"), "export function formatDate(d: Date) {\n  return d.toISOString();\n}\n");
     for (let i = 1; i <= 6; i++) {

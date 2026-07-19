@@ -29,7 +29,7 @@ export interface ClarifyQuestion {
   message: string;
   choices: { title: string; value: string }[];
   refine: (answer: string[]) => string | null;
-  /** Machine-readable edit scope, so Glint can verify the agent honored it. */
+  /** Machine-readable edit scope, so Super Terminal can verify the agent honored it. */
   scopeFor?: (answer: string[]) => EditScope | null;
   /** Single-choice (a confirmation), not a multi-select target list. */
   single?: boolean;
@@ -37,7 +37,7 @@ export interface ClarifyQuestion {
 
 /**
  * What the user actually authorized: the occurrences to change, and the ones
- * that must survive untouched. Prose tells the agent; this lets Glint check.
+ * that must survive untouched. Prose tells the agent; this lets Super Terminal check.
  */
 export interface EditScope {
   phrase: string;

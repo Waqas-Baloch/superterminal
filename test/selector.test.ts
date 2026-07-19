@@ -12,7 +12,7 @@ let dir: string;
 let selection: Selection;
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-selector-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-selector-"));
   await fs.mkdir(path.join(dir, "app", "cart"), { recursive: true });
   await fs.mkdir(path.join(dir, "components"), { recursive: true });
   await fs.mkdir(path.join(dir, "lib"), { recursive: true });

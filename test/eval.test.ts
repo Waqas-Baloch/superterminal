@@ -3,7 +3,7 @@ import { buildIntentFrame, detectAmbiguity, classifyBand, type Band } from "../s
 import type { Selection } from "../src/core/selector";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Glint understanding — evaluation harness.
+// Super Terminal understanding — evaluation harness.
 //
 // This is how ">99% accuracy" becomes a measured number instead of a claim. It
 // runs a labeled library of ambiguous coding tasks (seeded with every real bug
@@ -322,7 +322,7 @@ describe("understanding evaluation harness", () => {
 
   it("reports metrics", () => {
     /* eslint-disable no-console */
-    console.log("\n── Glint understanding — eval metrics ──");
+    console.log("\n── Super Terminal understanding — eval metrics ──");
     console.log(`cases:            ${n}`);
     console.log(`band accuracy:    ${(bandAccuracy * 100).toFixed(1)}%  (${exact}/${n})`);
     console.log(`over-ask rate:    ${((overAsk / n) * 100).toFixed(1)}%`);

@@ -6,14 +6,14 @@ import { scrub, isEnabled, setEnabled, status, track } from "../src/util/telemet
 
 let home: string;
 beforeEach(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), "glint-tel-"));
-  process.env.GLINT_HOME = home;
-  delete process.env.GLINT_TELEMETRY;
+  home = await fs.mkdtemp(path.join(os.tmpdir(), "st-tel-"));
+  process.env.SUPER_T_HOME = home;
+  delete process.env.SUPER_T_TELEMETRY;
   delete process.env.DO_NOT_TRACK;
   delete process.env.CI;
 });
 afterEach(async () => {
-  delete process.env.GLINT_HOME;
+  delete process.env.SUPER_T_HOME;
   await fs.rm(home, { recursive: true, force: true });
 });
 
@@ -37,7 +37,7 @@ describe("scrub — nothing a person typed can ever leave the machine", () => {
     expect(scrub({ outcome: "user said: my api key is sk-live-abc" })).toEqual({ outcome: "other" });
   });
 
-  it("keeps Glint's own fixed tokens", () => {
+  it("keeps Super Terminal's own fixed tokens", () => {
     expect(scrub({ command: "flow", agent: "codex", outcome: "applied", band: "green" })).toEqual({
       command: "flow",
       agent: "codex",
@@ -88,10 +88,10 @@ describe("the off switch", () => {
     expect(await isEnabled()).toBe(true);
   });
 
-  it("honors GLINT_TELEMETRY=0 and DO_NOT_TRACK", async () => {
-    process.env.GLINT_TELEMETRY = "0";
+  it("honors SUPER_T_TELEMETRY=0 and DO_NOT_TRACK", async () => {
+    process.env.SUPER_T_TELEMETRY = "0";
     expect(await isEnabled()).toBe(false);
-    delete process.env.GLINT_TELEMETRY;
+    delete process.env.SUPER_T_TELEMETRY;
     process.env.DO_NOT_TRACK = "1";
     expect(await isEnabled()).toBe(false);
   });
@@ -113,11 +113,11 @@ describe("safety — analytics must never break or slow a command", () => {
   });
 
   it("fails quietly, and reports failure, when the endpoint is unreachable", async () => {
-    process.env.GLINT_TELEMETRY_HOST = "http://127.0.0.1:1"; // nothing listening
+    process.env.SUPER_T_TELEMETRY_HOST = "http://127.0.0.1:1"; // nothing listening
     // Must not throw — and must return false so `installed` retries next run
     // rather than being marked delivered when it never arrived.
     await expect(track("task_completed", null, { command: "run" })).resolves.toBe(false);
-    delete process.env.GLINT_TELEMETRY_HOST;
+    delete process.env.SUPER_T_TELEMETRY_HOST;
   });
 
   it("keeps a stable anonymous id across calls", async () => {

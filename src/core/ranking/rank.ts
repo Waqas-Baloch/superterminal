@@ -42,7 +42,7 @@ export interface RankOptions {
 }
 
 /**
- * Full pipeline from the Glint Context Ranking Specification: Stage A (task
+ * Full pipeline from the Super Terminal Context Ranking Specification: Stage A (task
  * classification) → anchor detection → Stage B (depth-based graph expansion)
  * → weighted 9-signal scoring → confidence finalization → tiered budget pack.
  */

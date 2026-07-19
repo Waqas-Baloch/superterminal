@@ -134,7 +134,7 @@ describe("interactive session line", () => {
   });
 });
 
-describe("highlightFiles — see which file Glint found, before you send", () => {
+describe("highlightFiles — see which file Super Terminal found, before you send", () => {
   const exists = (t: string): boolean => t === "landing-page.md" || t === "src/hero.tsx";
 
   it("tints a filename that exists in the repo", () => {

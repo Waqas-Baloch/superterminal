@@ -17,15 +17,15 @@ describe("session input router", () => {
   });
 
   it("routes flow and compare from inside a session, quotes stripped", () => {
-    // This is what broke: `glint flow "…"` typed at the session prompt was
+    // This is what broke: `super-t flow "…"` typed at the session prompt was
     // swallowed as a plain task because the parser didn't know "flow".
-    expect(interpret('glint flow "audit auth with claude, then fix it with codex"')).toEqual({
+    expect(interpret('super-t flow "audit auth with claude, then fix it with codex"')).toEqual({
       type: "flow",
       steps: "audit auth with claude, then fix it with codex",
     });
     expect(interpret("/flow audit auth with claude")).toEqual({ type: "flow", steps: "audit auth with claude" });
     expect(interpret('/compare "add rate limiting"')).toEqual({ type: "compare", task: "add rate limiting" });
-    expect(interpret('glint plan "add a login form"')).toEqual({ type: "plan", task: "add a login form" });
+    expect(interpret('super-t plan "add a login form"')).toEqual({ type: "plan", task: "add a login form" });
   });
 
   it("treats plain text as a task", () => {

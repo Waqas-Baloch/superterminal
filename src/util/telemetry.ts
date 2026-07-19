@@ -4,13 +4,13 @@ import crypto from "node:crypto";
 import { homeDir } from "./paths";
 import { VERSION } from "../version";
 
-// Anonymous usage counts, so we can see whether people get Glint working —
+// Anonymous usage counts, so we can see whether people get Super Terminal working —
 // installs, setup completion, tasks finished, and whether they come back.
 //
 // The hard rule, enforced structurally below: nothing a person typed and
 // nothing read from disk ever leaves the machine. No prompts, no filenames,
 // no paths, no code, no diffs, no repo names. Only the fixed field names in
-// ALLOWED, carrying primitives, and only values Glint itself chose.
+// ALLOWED, carrying primitives, and only values Super Terminal itself chose.
 //
 // PostHog project key. Public by design: it can only write events in, never
 // read anything out, which is why it ships inside the package. (The secret
@@ -19,9 +19,8 @@ const BUILT_IN_KEY = "phc_tD3DNhmLnyV5MuhxRXLWVGzAcizSc5Jgav2FoqUZHFCK";
 
 // Read at call time, not import time: an env override has to work, and a test
 // that sets one has to actually exercise the network path.
-const projectKey = (): string => process.env.SUPER_T_TELEMETRY_KEY ?? process.env.GLINT_TELEMETRY_KEY ?? BUILT_IN_KEY;
-const host = (): string =>
-  process.env.SUPER_T_TELEMETRY_HOST ?? process.env.GLINT_TELEMETRY_HOST ?? "https://eu.i.posthog.com"; // EU project
+const projectKey = (): string => process.env.SUPER_T_TELEMETRY_KEY ?? BUILT_IN_KEY;
+const host = (): string => process.env.SUPER_T_TELEMETRY_HOST ?? "https://eu.i.posthog.com"; // EU project
 const TIMEOUT_MS = 800; // never make someone wait on analytics
 
 export type TelemetryEvent =
@@ -37,7 +36,7 @@ export type TelemetryEvent =
  * String fields are ENUMERATED, not pattern-matched. That distinction is the
  * whole guarantee: a filename like "landing-page.md" satisfies any reasonable
  * "safe characters" pattern, because filenames are made of safe characters.
- * Only a fixed list of Glint's own vocabulary can express "this cannot be user
+ * Only a fixed list of Super Terminal's own vocabulary can express "this cannot be user
  * data". Anything unrecognized becomes "other" — never a truncated original.
  */
 const FIELDS: Record<string, "number" | "boolean" | "version" | readonly string[]> = {
@@ -134,10 +133,7 @@ async function writeState(s: Ids): Promise<void> {
 
 /** Off via env var, or via `super-t telemetry off`. */
 export async function isEnabled(): Promise<boolean> {
-  // GLINT_TELEMETRY is honoured permanently. Retiring it would silently
-  // resume collection from someone who had explicitly opted out — the one
-  // rename side effect that is not recoverable by apologising later.
-  const env = process.env.SUPER_T_TELEMETRY ?? process.env.GLINT_TELEMETRY;
+  const env = process.env.SUPER_T_TELEMETRY;
   if (env === "0" || env?.toLowerCase() === "off" || env?.toLowerCase() === "false") return false;
   if (process.env.DO_NOT_TRACK === "1") return false; // consoledonottrack.com
   if (process.env.CI) return false; // CI installs aren't users
@@ -180,7 +176,7 @@ export async function trackInstallOnce(): Promise<void> {
     const s = await readState();
     if (s.installSent) return;
     // Persist ONLY after delivery. Marking first meant a fast-exiting command
-    // (`glint --version`, `glint --help`) could kill the request in flight and
+    // (`super-t --version`, `super-t --help`) could kill the request in flight and
     // still record it as sent — silently losing the funnel's denominator with
     // no retry. Offline first runs now simply try again next time.
     if (await track("installed", null)) await writeState({ ...s, installSent: true });

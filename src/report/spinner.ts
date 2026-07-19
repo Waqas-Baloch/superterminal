@@ -1,7 +1,7 @@
 import ora, { type Ora } from "ora";
 import pc from "picocolors";
 
-// Glint's loading animation: three lime dots riding a travelling wave.
+// Super Terminal's loading animation: three lime dots riding a travelling wave.
 //
 // A terminal line has no sub-pixel vertical space, so each dot lives in its own
 // cell and moves through the four vertical positions of a single braille column
@@ -37,11 +37,11 @@ function buildFrames(): string[] {
   return frames;
 }
 
-export const glintSpinner = { interval: INTERVAL, frames: buildFrames() };
+export const brandSpinner = { interval: INTERVAL, frames: buildFrames() };
 
-/** ora, wearing Glint's wave. Use instead of calling ora() directly. */
+/** ora, wearing Super Terminal's wave. Use instead of calling ora() directly. */
 export function spin(text: string): Ora {
-  return ora({ text, spinner: glintSpinner });
+  return ora({ text, spinner: brandSpinner });
 }
 
 // ── The pixel wave ──────────────────────────────────────────────────────────

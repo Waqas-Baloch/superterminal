@@ -31,7 +31,7 @@ import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
 import { AGENT_CLIS, runAgent, continueAgent, type AgentCliDef, type AgentUsage } from "../claude/agentCli";
 import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
-import { loadConfig, type GlintConfig } from "../util/config";
+import { loadConfig, type ProjectConfig } from "../util/config";
 import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
@@ -55,7 +55,7 @@ interface RunOptions {
 interface ExecContext {
   root: string;
   auth: Auth;
-  config: GlintConfig;
+  config: ProjectConfig;
   budget: number;
   model: string;
   opts: RunOptions;
@@ -184,12 +184,12 @@ type SessionCommand =
 
 /**
  * Interpret a line typed at the session prompt. Recognizes /commands and the
- * `glint <cmd>` forms (which people naturally type, having seen the header),
+ * `super-t <cmd>` forms (which people naturally type, having seen the header),
  * so they aren't mistaken for tasks. Everything else is a task.
  */
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|glint\s+)(run|plan|flow|compare|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
+  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
     // People naturally type `super-t flow "…"` inside the session — drop the
@@ -311,7 +311,7 @@ function printSessionHelp(): void {
 }
 
 async function promptNextTask(first: boolean): Promise<string | undefined> {
-  // Filenames you type get tinted if they exist, so you can see Glint found
+  // Filenames you type get tinted if they exist, so you can see Super Terminal found
   // them before submitting. Cached per repo — a glob per keystroke would crawl.
   const known = await repoFileNames(process.cwd()).catch(() => new Set<string>());
   const isFile = (t: string): boolean => known.has(t) || known.has(nodePath.basename(t));
@@ -681,7 +681,7 @@ async function readBackupBefore(root: string, rel: string): Promise<string | nul
 
 /** The product's pitch, printed after every run — the honest ratio, no raw token counts. */
 function printContextSummary(sentTokens: number, repoTokens: number): void {
-  // Just the share of the repo Glint sent — a ratio it can stand behind. No raw
+  // Just the share of the repo Super Terminal sent — a ratio it can stand behind. No raw
   // token numbers (they were estimates; the real usage is reported by the agent).
   const pctNum = Math.min(100, Math.max(0, (sentTokens / repoTokens) * 100));
   const sent = pctNum < 1 ? pctNum.toFixed(1) : String(Math.round(pctNum));
@@ -798,7 +798,7 @@ async function runViaApi(
 
 // ---------------------------------------------------------------------------
 // Provider: agent CLI passthrough — Claude Code / Cursor / Codex bring their
-// own auth and edit loop; glint tracks and undoes changes via git
+// own auth and edit loop; Super Terminal tracks and undoes changes via git
 // ---------------------------------------------------------------------------
 
 async function runViaAgentCli(
@@ -807,7 +807,7 @@ async function runViaAgentCli(
   opts: RunOptions,
   agent: AgentCliDef,
   index: RepoIndex,
-  config: GlintConfig,
+  config: ProjectConfig,
 ): Promise<RunOutcome | null> {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   // Snapshot file contents up front so we can diff (and revert) without git.
@@ -924,7 +924,7 @@ async function snapshotContents(root: string, index: RepoIndex): Promise<Map<str
  */
 async function backupAndDiff(
   root: string,
-  config: GlintConfig,
+  config: ProjectConfig,
   snapshot: Map<string, string>,
   runId: string,
 ): Promise<FileChange[]> {

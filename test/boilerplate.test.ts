@@ -20,7 +20,7 @@ let graph: RepoGraph;
 let selection: Selection;
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-boiler-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-boiler-"));
 
   await fs.writeFile(
     path.join(dir, "index.html"),

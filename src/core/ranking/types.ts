@@ -1,4 +1,4 @@
-// Types for the Glint Context Ranking Specification. See
+// Types for the Super Terminal Context Ranking Specification. See
 // docs/ranking-spec.md for the source formulas this module implements.
 
 export type TaskType = "ui" | "copy" | "logic" | "style" | "data" | "api" | "config" | "test" | "infra";

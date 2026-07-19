@@ -1,7 +1,7 @@
 import { forgetAll } from "../core/memory";
 import { log } from "../util/logger";
 
-/** Wipe the repo's learned disambiguation choices (.glint/intent.json). */
+/** Wipe the repo's learned disambiguation choices (.super-t/intent.json). */
 export async function forgetCommand(): Promise<void> {
   const n = await forgetAll(process.cwd());
   if (n === 0) {

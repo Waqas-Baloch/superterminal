@@ -30,7 +30,7 @@ function sel(): Selection {
 describe("repo memory store", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-mem-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-mem-"));
   });
   afterEach(async () => {
     await fs.rm(dir, { recursive: true, force: true });
@@ -53,7 +53,7 @@ describe("repo memory store", () => {
 describe("memory recall inside assessTask — the second time, it doesn't ask", () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-mem2-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-mem2-"));
     await fs.writeFile(path.join(dir, "index.html"), PAGE);
   });
   afterEach(async () => {

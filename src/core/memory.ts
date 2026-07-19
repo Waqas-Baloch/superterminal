@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
-import { stateDir, findStateFile } from "../util/paths";
+import { stateDir } from "../util/paths";
 
-// Repo memory: Glint learns your disambiguation answers so it stops asking the
+// Repo memory: Super Terminal learns your disambiguation answers so it stops asking the
 // same question. When you say "the nav one" for a duplicate "Try Now", that
 // choice is saved to <state>/intent.json and auto-applied next time — the CLI
 // gets calibrated to *your* repo and asks less every week.
@@ -22,19 +22,13 @@ interface Store {
   choices: IntentChoice[];
 }
 
-/** Where new choices are written. */
 function file(root: string): string {
   return nodePath.join(stateDir(root), STORE);
 }
 
-/** Where existing choices live — the current store, or an earlier brand's. */
-async function existingFile(root: string): Promise<string> {
-  return (await findStateFile(root, STORE)) ?? file(root);
-}
-
 export async function loadIntents(root: string): Promise<IntentChoice[]> {
   try {
-    const raw = JSON.parse(await fs.readFile(await existingFile(root), "utf8")) as Store;
+    const raw = JSON.parse(await fs.readFile(file(root), "utf8")) as Store;
     return Array.isArray(raw.choices) ? raw.choices : [];
   } catch {
     return []; // no memory yet, or unreadable — start fresh

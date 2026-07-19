@@ -128,7 +128,7 @@ async function manualEntry(): Promise<string | null> {
 /**
  * Standalone `super-t search [query]`: pick a project, change into it, and start
  * a session there. A CLI can't change the parent shell's directory, so we
- * chdir the Glint process itself and run the session in that root.
+ * chdir the Super Terminal process itself and run the session in that root.
  */
 export async function searchCommand(query?: string): Promise<void> {
   const root = await pickProject(query);

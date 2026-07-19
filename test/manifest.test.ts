@@ -9,7 +9,7 @@ let dir: string;
 let manifest: string;
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-manifest-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-manifest-"));
   await fs.mkdir(path.join(dir, "src"), { recursive: true });
   await fs.writeFile(
     path.join(dir, "package.json"),

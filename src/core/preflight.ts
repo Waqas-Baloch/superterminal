@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 
-// Preflight target-existence check. Glint's whole promise is spending fewer
+// Preflight target-existence check. Super Terminal's whole promise is spending fewer
 // tokens — so a destructive/modify edit to something that isn't in the repo
 // should never reach the agent. The agent would just burn tokens rediscovering
 // that nothing matches. If every specific target the task names is absent from

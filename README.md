@@ -100,17 +100,6 @@ It does send anonymous usage counts — which agent, which command, whether a ta
 super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 ```
 
-## Upgrading from Glint
-
-Super Terminal was previously published as `getglint` with the `glint` command.
-
-```sh
-npm uninstall -g getglint
-npm install -g superterminal
-```
-
-Your existing setup keeps working. Connections, project rules, learned choices, and run backups written under `.glint/` (and `~/.glint/`) are still read, so you don't need to reconnect or lose an undo. New state is written to `.super-t/`. The `GLINT_*` environment variables are still honoured — including `GLINT_TELEMETRY=0`, so an existing opt-out stays an opt-out.
-
 ## Requirements
 
 Node 20 or later. macOS and Linux are tested; Windows is untested.

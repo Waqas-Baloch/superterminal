@@ -8,11 +8,11 @@ let home: string;
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
-  home = await fs.mkdtemp(path.join(os.tmpdir(), "glint-home-"));
-  for (const key of ["GLINT_HOME", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) {
+  home = await fs.mkdtemp(path.join(os.tmpdir(), "st-home-"));
+  for (const key of ["SUPER_T_HOME", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) {
     savedEnv[key] = process.env[key];
   }
-  process.env.GLINT_HOME = home;
+  process.env.SUPER_T_HOME = home;
 });
 
 afterAll(async () => {

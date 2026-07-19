@@ -18,12 +18,12 @@ export interface SlashCommand {
 }
 
 const MAX_VISIBLE = 8;
-const FILE_HL = "\x1b[38;2;150;220;255m"; // soft cyan — a file Glint located
+const FILE_HL = "\x1b[38;2;150;220;255m"; // soft cyan — a file Super Terminal located
 const DEFAULT_FG = "\x1b[39m";
 const FILE_TOKEN = /[\w.-]+(?:\/[\w.-]+)*\.[a-zA-Z0-9]{1,6}/g;
 
 /**
- * Tint filenames that actually exist so you can see Glint found them before you
+ * Tint filenames that actually exist so you can see Super Terminal found them before you
  * hit enter. Only the written string grows — the visible length is unchanged,
  * so the cursor math (which uses the raw buffer) stays correct.
  */

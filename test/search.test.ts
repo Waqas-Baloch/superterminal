@@ -9,7 +9,7 @@ let originalCwd: string;
 
 beforeAll(async () => {
   originalCwd = process.cwd();
-  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "glint-search-"));
+  workspace = await fs.mkdtemp(path.join(os.tmpdir(), "st-search-"));
   // A project with package.json, a project with .git, and a plain folder
   await fs.mkdir(path.join(workspace, "shop-app"), { recursive: true });
   await fs.writeFile(path.join(workspace, "shop-app", "package.json"), "{}");

@@ -9,7 +9,7 @@ import { selectFiles } from "../core/selector";
 import { generateManifest } from "../core/manifest";
 import { AGENT_CLIS, runAgent, pathWithLocalBin, type AgentCliDef, type AgentUsage } from "../claude/agentCli";
 import { runValidators } from "../validate/validator";
-import { loadConfig, type GlintConfig } from "../util/config";
+import { loadConfig, type ProjectConfig } from "../util/config";
 import { renderFileDiff } from "../report/diff";
 import { spin } from "../report/spinner";
 import { log } from "../util/logger";
@@ -153,7 +153,7 @@ export async function snapshot(root: string, index: RepoIndex): Promise<Map<stri
 /** What changed vs the snapshot: modified + newly-created files, with content. */
 export async function diffAgainst(
   root: string,
-  config: GlintConfig,
+  config: ProjectConfig,
   before: Map<string, string | null>,
 ): Promise<FileChange[]> {
   const nowIndex = await indexRepo(root, config);

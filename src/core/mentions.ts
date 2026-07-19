@@ -6,9 +6,9 @@ import { STATE_IGNORE_GLOBS } from "./../util/paths";
 // Files the prompt names. Two jobs from one resolver:
 //   1. If you mention a file that exists ("…using landing-page.md"), its
 //      content is injected — so a context/brief/skill file works under any
-//      name, not just the ones Glint knows by convention.
+//      name, not just the ones Super Terminal knows by convention.
 //   2. The session input highlights those names as you type, so you can see
-//      Glint found the file before you hit enter.
+//      Super Terminal found the file before you hit enter.
 
 const FILE_TOKEN = /\b([\w.-]+(?:\/[\w.-]+)*\.[a-zA-Z0-9]{1,6})\b/g;
 const IGNORE = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", ...STATE_IGNORE_GLOBS];

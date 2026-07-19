@@ -1,7 +1,7 @@
 import pc from "picocolors";
 
-// Glint's light theme. The brand accent is #0040FF (blue) on a #F3F9FF
-// (light) background. On startup Glint asks the terminal to paint the whole
+// Super Terminal's light theme. The brand accent is #0040FF (blue) on a #F3F9FF
+// (light) background. On startup Super Terminal asks the terminal to paint the whole
 // window in these colors and restores the user's own colors on exit.
 
 export const RESET = "\x1b[0m";
@@ -24,7 +24,7 @@ let applied = false;
 
 /**
  * Paint the terminal window: light-blue background, blue default text, for the
- * whole session — and restore the user's original colors when Glint exits
+ * whole session — and restore the user's original colors when Super Terminal exits
  * (normal exit or Ctrl-C). Only in a real terminal; a no-op when piped/CI.
  * Terminals that don't support OSC 10/11 quietly ignore it (text still blue).
  */

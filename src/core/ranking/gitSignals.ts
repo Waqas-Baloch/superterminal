@@ -7,7 +7,7 @@ const GIT_TIMEOUT_MS = 4000;
 
 /**
  * R — Recency/Co-edit. Spec: 0.50*CoEditFrequency + 0.30*RecentChangeBoost +
- * 0.20*PRCoupling. PRCoupling needs a PR system Glint doesn't integrate with
+ * 0.20*PRCoupling. PRCoupling needs a PR system Super Terminal doesn't integrate with
  * (a local CLI has no GitHub/GitLab API wired up) and stays at 0 — a minor
  * sub-signal of an already-small top-level weight (w_R=0.06), so it isn't
  * redistributed like M's EmbedSim is. RecentChangeBoost uses filesystem

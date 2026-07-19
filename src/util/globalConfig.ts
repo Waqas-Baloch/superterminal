@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import { z } from "zod";
-import { homeDir, homeCandidates } from "./paths";
+import { homeDir } from "./paths";
 
 export type AgentCliId = "claude-code" | "cursor" | "codex";
 
@@ -20,23 +20,18 @@ const schema = z.object({
 export type GlobalConfig = z.infer<typeof schema>;
 
 /** User-level config dir. Re-exported so callers don't reach past this module. */
-export { homeDir as glintHome } from "./paths";
+export { homeDir } from "./paths";
 
 function configFile(): string {
   return nodePath.join(homeDir(), "config.json");
 }
 
 export async function loadGlobalConfig(): Promise<GlobalConfig | null> {
-  // Current location first, then every earlier brand's. A connection made
-  // under an old name keeps working instead of silently asking for setup again.
-  for (const candidate of homeCandidates("config.json")) {
-    try {
-      return schema.parse(JSON.parse(await fs.readFile(candidate, "utf8")));
-    } catch {
-      continue;
-    }
+  try {
+    return schema.parse(JSON.parse(await fs.readFile(configFile(), "utf8")));
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export async function saveGlobalConfig(config: GlobalConfig): Promise<string> {

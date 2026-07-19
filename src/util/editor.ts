@@ -10,7 +10,7 @@ import { execa } from "execa";
  * Throws if no editor can be launched — the caller decides how to recover.
  */
 export async function openInEditor(content: string, ext = "md"): Promise<string> {
-  const file = nodePath.join(os.tmpdir(), `glint-${randomBytes(6).toString("hex")}.${ext}`);
+  const file = nodePath.join(os.tmpdir(), `st-${randomBytes(6).toString("hex")}.${ext}`);
   await fs.writeFile(file, content);
   const editor = process.env.VISUAL || process.env.EDITOR || (process.platform === "win32" ? "notepad" : "nano");
   try {

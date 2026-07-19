@@ -66,7 +66,7 @@ describe("intent frame builder", () => {
 describe("duplicate detector", () => {
   let dir: string;
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-understand-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-understand-"));
     await fs.writeFile(
       path.join(dir, "index.html"),
       [
@@ -216,7 +216,7 @@ describe("post-edit scope enforcement — verifying the agent honored the choice
   const keepFooter = [fakeInstance("index.html", 8, "footer#support", "Try Now")];
 
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-scope-enforce-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-scope-enforce-"));
   });
   afterAll(async () => {
     await fs.rm(dir, { recursive: true, force: true });

@@ -2,10 +2,10 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { RepoIndex } from "../core/indexer";
-import { ALL_STATE_DIRS, stateDir } from "../util/paths";
+import { STATE_DIR, stateDir } from "../util/paths";
 
 const MAX_READ_CHARS = 60_000;
-const BLOCKED_SEGMENTS = new Set([".git", "node_modules", ...ALL_STATE_DIRS]);
+const BLOCKED_SEGMENTS = new Set([".git", "node_modules", STATE_DIR]);
 const BLOCKED_FILES = new Set(["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"]);
 
 /**

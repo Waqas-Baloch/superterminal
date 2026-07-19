@@ -9,7 +9,7 @@ import { STATE_DIR } from "../src/util/paths";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-rules-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-rules-"));
   await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "demo" }));
 });
 afterEach(async () => {
@@ -21,7 +21,7 @@ describe("loadRules — read what teams already have", () => {
     expect(await loadRules(dir)).toEqual({ text: "", sources: [] });
   });
 
-  it("reads existing agent files (CLAUDE.md, .cursorrules) and Glint's own", async () => {
+  it("reads existing agent files (CLAUDE.md, .cursorrules) and Super Terminal's own", async () => {
     await fs.writeFile(path.join(dir, "CLAUDE.md"), "Never edit files under generated/.");
     await fs.writeFile(path.join(dir, ".cursorrules"), "Use tabs, not spaces.");
     await fs.mkdir(path.join(dir, STATE_DIR), { recursive: true });
@@ -97,7 +97,7 @@ describe("rule verification — protected paths (the 'keeps them honest' half)",
   });
 });
 
-describe("glint init — drafts a starter rules file", () => {
+describe("super-t init — drafts a starter rules file", () => {
   it("detects the test script and generated dirs, and doesn't clobber an existing file", async () => {
     await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "demo", scripts: { test: "vitest run" } }));
     await fs.mkdir(path.join(dir, "dist"), { recursive: true });

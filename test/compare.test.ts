@@ -8,7 +8,7 @@ import { snapshot, diffAgainst, restoreTo } from "../src/commands/compare";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-compare-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-compare-"));
   await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "demo" }));
   await fs.writeFile(path.join(dir, "app.ts"), "export const a = 1;\n");
   await fs.writeFile(path.join(dir, "util.ts"), "export const u = 2;\n");

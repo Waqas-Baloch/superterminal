@@ -41,7 +41,7 @@ describe("agent CLI registry", () => {
 });
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-git-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-git-"));
   await execa("git", ["init", "-q"], { cwd: dir });
   await execa("git", ["config", "user.email", "t@t.dev"], { cwd: dir });
   await execa("git", ["config", "user.name", "t"], { cwd: dir });
@@ -75,7 +75,7 @@ describe("git helpers", () => {
   });
 
   it("bootstraps a fresh repo with a baseline commit", async () => {
-    const fresh = await fs.mkdtemp(path.join(os.tmpdir(), "glint-fresh-"));
+    const fresh = await fs.mkdtemp(path.join(os.tmpdir(), "st-fresh-"));
     await fs.writeFile(path.join(fresh, "style.css"), "body { margin: 0; }\n");
 
     expect(await isGitRepo(fresh)).toBe(false);
@@ -144,7 +144,7 @@ describe("composeArgs — surgical mode restrictions (Step 0)", () => {
 });
 
 describe("live output relay", () => {
-  // Piping (instead of inheriting) the agent's stdio is what lets Glint show a
+  // Piping (instead of inheriting) the agent's stdio is what lets Super Terminal show a
   // spinner over the dead air and clear it the moment the agent speaks — but
   // piping is also what once made Codex hang with no output. This pins the
   // contract: output must stream through live, and the first byte must be

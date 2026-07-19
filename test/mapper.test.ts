@@ -11,7 +11,7 @@ let dir: string;
 let graph: RepoGraph;
 
 beforeAll(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-mapper-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-mapper-"));
   await fs.mkdir(path.join(dir, "src", "lib"), { recursive: true });
 
   await fs.writeFile(

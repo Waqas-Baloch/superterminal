@@ -32,7 +32,7 @@ export function providerChoices(opts: {
   return [
     {
       title: `Anthropic API key${mark("api-key")}`,
-      description: "paste once, stored locally in ~/.glint (permissions 600)",
+      description: "paste once, stored locally in ~/.super-t (permissions 600)",
       value: "api-key",
     },
     {
@@ -53,7 +53,7 @@ export function providerChoices(opts: {
 
 /**
  * Set up and save the chosen provider. Instant when the agent CLI is already
- * installed and logged in (its auth lives outside Glint). Preserves any stored
+ * installed and logged in (its auth lives outside Super Terminal). Preserves any stored
  * API key across switches so switching back to it is also instant.
  */
 export async function applyProvider(provider: ProviderId): Promise<boolean> {

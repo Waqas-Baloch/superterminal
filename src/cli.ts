@@ -108,7 +108,7 @@ program
 // no-op on every run after the first.
 await trackInstallOnce();
 
-// Bare `glint` (no command) shows the welcome box (wordmark + status + commands).
+// Bare `super-t` (no command) shows the welcome box (wordmark + status + commands).
 if (process.argv.length <= 2) {
   renderHeader(VERSION).then((header) => console.log(header + "\n"));
 } else {

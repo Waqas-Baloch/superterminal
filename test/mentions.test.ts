@@ -16,7 +16,7 @@ import type { Selection } from "../src/core/selector";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-mentions-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-mentions-"));
   await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "demo" }));
 });
 afterEach(async () => {

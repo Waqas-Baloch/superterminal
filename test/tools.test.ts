@@ -9,7 +9,7 @@ let dir: string;
 let stage: EditStage;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-stage-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-stage-"));
   await fs.mkdir(path.join(dir, "src"), { recursive: true });
   await fs.writeFile(path.join(dir, "src", "a.ts"), "const x = 1;\nconst y = 2;\nconst z = 1;\n");
   stage = new EditStage(dir);

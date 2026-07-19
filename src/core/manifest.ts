@@ -37,7 +37,7 @@ const FOCUS_MIN_TOKENS = 250; // below this, excerpting adds overhead instead of
 // with a strong "be helpful / match surrounding style" bias) tend to soften
 // destructive verbs — e.g. rewriting a button's text to match its siblings
 // when the user said "remove". This framing reaches every provider because
-// it lives in the manifest, not in Glint's API-only system prompt.
+// it lives in the manifest, not in Super Terminal's API-only system prompt.
 const APPLY_GUIDANCE = `## How to apply this task
 Do exactly what the task asks — no more, no less — and follow its wording literally:
 - "remove" / "delete" / "get rid of" means take that element or code out **entirely** — do not replace its text, rename it, or rewrite it into something else.

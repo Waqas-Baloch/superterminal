@@ -8,7 +8,7 @@ import type { Selection } from "../src/core/selector";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-skills-"));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-skills-"));
   await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "demo" }));
 });
 afterEach(async () => {
@@ -21,10 +21,10 @@ async function writeSkill(rel: string, content: string): Promise<void> {
   await fs.writeFile(p, content);
 }
 
-describe("loadSkills — read Glint's and Claude Code's", () => {
-  it("reads .glint/skills and .claude/skills, with frontmatter", async () => {
+describe("loadSkills — read Super Terminal's and Claude Code's", () => {
+  it("reads .super-t/skills and .claude/skills, with frontmatter", async () => {
     await writeSkill(
-      ".glint/skills/api-endpoint/SKILL.md",
+      ".super-t/skills/api-endpoint/SKILL.md",
       `---\nname: API endpoint\ndescription: how we add a REST endpoint\nwhen: endpoint, route\n---\n1. Add the handler.\n2. Register the route.`,
     );
     await writeSkill(".claude/skills/testing/SKILL.md", `---\nname: Testing\ndescription: how we write tests\n---\nUse vitest.`);
@@ -37,7 +37,7 @@ describe("loadSkills — read Glint's and Claude Code's", () => {
   });
 
   it("falls back to the folder name when there's no frontmatter", async () => {
-    await writeSkill(".glint/skills/deploys/SKILL.md", "Always tag a release first.");
+    await writeSkill(".super-t/skills/deploys/SKILL.md", "Always tag a release first.");
     const [s] = await loadSkills(dir);
     expect(s.name).toBe("deploys");
     expect(s.body).toBe("Always tag a release first.");
@@ -70,10 +70,10 @@ describe("matchSkills — fires only when relevant", () => {
 describe("skills reach the manifest — for whichever agent runs", () => {
   it("injects a matching skill and omits an unrelated one", async () => {
     await writeSkill(
-      ".glint/skills/api-endpoint/SKILL.md",
+      ".super-t/skills/api-endpoint/SKILL.md",
       `---\nname: API endpoint\ndescription: how we add a REST endpoint\nwhen: endpoint\n---\nAlways validate the body with zod.`,
     );
-    await writeSkill(".glint/skills/styling/SKILL.md", `---\nname: Styling\ndescription: how we do CSS\nwhen: css\n---\nUse tokens.`);
+    await writeSkill(".super-t/skills/styling/SKILL.md", `---\nname: Styling\ndescription: how we do CSS\nwhen: css\n---\nUse tokens.`);
     await fs.writeFile(path.join(dir, "app.ts"), "export const x = 1;\n");
 
     const selection: Selection = {

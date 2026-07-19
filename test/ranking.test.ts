@@ -149,7 +149,7 @@ describe("rankContext — end to end", () => {
   let dir: string;
 
   beforeAll(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), "glint-ranking-"));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-ranking-"));
     await fs.mkdir(path.join(dir, "app", "cart"), { recursive: true });
     await fs.mkdir(path.join(dir, "components"), { recursive: true });
     await fs.writeFile(

@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { statePath, STATE_DIR } from "./paths";
 
 const configSchema = z.object({
   model: z.string().default("claude-opus-4-8"),
@@ -9,22 +10,20 @@ const configSchema = z.object({
   exclude: z.array(z.string()).default([]),
 });
 
-export type GlintConfig = z.infer<typeof configSchema>;
+export type ProjectConfig = z.infer<typeof configSchema>;
 
-export async function loadConfig(root: string): Promise<GlintConfig> {
+const CONFIG_FILE = "config.json"; // lives in the state dir with everything else
+
+export async function loadConfig(root: string): Promise<ProjectConfig> {
   let raw: string;
   try {
-    raw = await fs.readFile(path.join(root, ".glintrc.json"), "utf8");
+    raw = await fs.readFile(statePath(root, CONFIG_FILE), "utf8");
   } catch {
-    try {
-      raw = await fs.readFile(path.join(root, ".squashrc.json"), "utf8"); // pre-rebrand fallback
-    } catch {
-      return configSchema.parse({});
-    }
+    return configSchema.parse({});
   }
   try {
     return configSchema.parse(JSON.parse(raw));
   } catch (err) {
-    throw new Error(`Invalid .glintrc.json: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Invalid ${STATE_DIR}/${CONFIG_FILE}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

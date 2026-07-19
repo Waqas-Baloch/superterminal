@@ -1,4 +1,4 @@
-// Glint Context Understanding & Clarification layer.
+// Super Terminal Context Understanding & Clarification layer.
 //
 // This sits ON TOP of the ranking system (src/core/ranking/*), which stays the
 // authority on "what is relevant." The ranking answers relevance; this layer
@@ -263,7 +263,7 @@ export function detectDuplicate(task: string, contents: Map<string, string>): Du
  *   • exactly one      → the target is known (nothing to ask — proceed)
  *   • none             → the task named no locatable copy (fall back to heuristics)
  * Knowing "exactly one" matters as much as knowing "several": it's what stops
- * Glint asking "which button?" when the task already said which.
+ * Super Terminal asking "which button?" when the task already said which.
  */
 function analyzeTargets(
   graph: ElementGraph,
