@@ -38,5 +38,5 @@ export async function switchCommand(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  log.dim("Your next `glint run` uses this agent.");
+  log.dim("Your next `super-t run` uses this agent.");
 }

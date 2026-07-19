@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import { z } from "zod";
+import { homeDir, homeCandidates } from "./paths";
 
 export type AgentCliId = "claude-code" | "cursor" | "codex";
 
@@ -18,33 +19,28 @@ const schema = z.object({
 
 export type GlobalConfig = z.infer<typeof schema>;
 
-/** User-level config dir (GLINT_HOME override is for tests). */
-export function glintHome(): string {
-  return process.env.GLINT_HOME ?? nodePath.join(os.homedir(), ".glint");
-}
+/** User-level config dir. Re-exported so callers don't reach past this module. */
+export { homeDir as glintHome } from "./paths";
 
 function configFile(): string {
-  return nodePath.join(glintHome(), "config.json");
+  return nodePath.join(homeDir(), "config.json");
 }
 
 export async function loadGlobalConfig(): Promise<GlobalConfig | null> {
-  try {
-    return schema.parse(JSON.parse(await fs.readFile(configFile(), "utf8")));
-  } catch {
-    // pre-rebrand fallback: connections made as `squash` keep working.
-    // Skipped when GLINT_HOME is overridden (tests need isolation).
-    if (process.env.GLINT_HOME) return null;
+  // Current location first, then every earlier brand's. A connection made
+  // under an old name keeps working instead of silently asking for setup again.
+  for (const candidate of homeCandidates("config.json")) {
     try {
-      const legacy = nodePath.join(os.homedir(), ".squash", "config.json");
-      return schema.parse(JSON.parse(await fs.readFile(legacy, "utf8")));
+      return schema.parse(JSON.parse(await fs.readFile(candidate, "utf8")));
     } catch {
-      return null;
+      continue;
     }
   }
+  return null;
 }
 
 export async function saveGlobalConfig(config: GlobalConfig): Promise<string> {
-  await fs.mkdir(glintHome(), { recursive: true });
+  await fs.mkdir(homeDir(), { recursive: true });
   const file = configFile();
   await fs.writeFile(file, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
   return file;
@@ -57,7 +53,7 @@ export type Auth =
 
 /**
  * Resolution order: explicit env vars beat the stored connection,
- * so power users and CI keep working without `glint connect`.
+ * so power users and CI keep working without `super-t connect`.
  */
 export async function resolveAuth(): Promise<Auth | null> {
   if (process.env.ANTHROPIC_API_KEY) {
@@ -68,7 +64,7 @@ export async function resolveAuth(): Promise<Auth | null> {
   }
   const config = await loadGlobalConfig();
   if (config?.provider === "api-key" && config.apiKey) {
-    return { mode: "api-key", apiKey: config.apiKey, source: "stored key (glint connect)" };
+    return { mode: "api-key", apiKey: config.apiKey, source: "stored key (super-t connect)" };
   }
   if (config?.provider === "oauth") {
     return { mode: "oauth", source: "Anthropic browser login (ant profile)" };

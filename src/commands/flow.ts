@@ -17,8 +17,9 @@ import { resolveAuth } from "../util/globalConfig";
 import { pixelWave } from "../report/spinner";
 import { log } from "../util/logger";
 import { track } from "../util/telemetry";
+import { stateDir } from "../util/paths";
 
-// `glint flow` — one command, several steps, each routed to the agent you named,
+// `super-t flow` — one command, several steps, each routed to the agent you named,
 // with outputs passed forward. The neutral layer's payoff: no vendor will run a
 // pipeline across its rivals.
 
@@ -58,7 +59,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
 
   const steps = parseFlow(input);
   if (steps.length === 0) {
-    log.error('Couldn\'t read any steps. Try: glint flow "audit auth with claude, then fix it with cursor"');
+    log.error('Couldn\'t read any steps. Try: super-t flow "audit auth with claude, then fix it with cursor"');
     process.exitCode = 1;
     return;
   }
@@ -78,7 +79,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   for (const step of steps) {
     const wanted = step.agent ? AGENT_CLIS[step.agent] : fallback;
     if (!wanted) {
-      log.error(`Step "${step.task}" names no agent and none is connected. Run \`glint connect\` or name one (…with claude).`);
+      log.error(`Step "${step.task}" names no agent and none is connected. Run \`super-t connect\` or name one (…with claude).`);
       process.exitCode = 1;
       return;
     }
@@ -121,7 +122,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   }
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const outDir = nodePath.join(root, ".glint", "flow", runId);
+  const outDir = nodePath.join(stateDir(root), "flow", runId);
   await fs.mkdir(outDir, { recursive: true });
 
   const index = await indexRepo(root, config);
@@ -167,7 +168,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     } catch (err) {
       wave.stop();
       log.error(err instanceof Error ? err.message : String(err));
-      log.dim(`Flow stopped at step ${i + 1}. Earlier steps' changes are kept — \`glint revert\` is not aware of flows yet.`);
+      log.dim(`Flow stopped at step ${i + 1}. Earlier steps' changes are kept — \`super-t revert\` is not aware of flows yet.`);
       process.exitCode = 1;
       return;
     }

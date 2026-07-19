@@ -1,134 +1,120 @@
-# Glint
+# Super Terminal
 
-Local-first CLI that cuts LLM token spend by compressing your codebase into a **task-specific manifest** before sending it to your AI coding agent — Claude, Cursor, or ChatGPT. Same model, 5–10× less context, with seatbelts.
+**One control layer for every AI coding agent.**
 
-Works on TypeScript/JavaScript/HTML/CSS repos; tuned for React/Next.js.
+Super Terminal is a free, local-first CLI that sits between you and Claude Code, Cursor, or ChatGPT Codex. Write your project's rules once and every agent follows them. Chain several agents into a single workflow. Keep only the changes you meant.
+
+It is not an agent. It has no model of its own and writes no code — it orchestrates the agent you already pay for.
 
 ## Install
 
-One command (Node 20+ required):
+Node 20+ required.
 
 ```sh
-npm install -g getglint
+npm install -g superterminal
+super-t connect          # one-time: pick your agent
+super-t run "add a loading state to the checkout button"
 ```
 
-Then verify and connect:
+## Why
+
+Two problems, both familiar if you code with agents daily.
+
+**Agents do more than you asked.** You say "remove the button in the navbar", there are two identical buttons, and it removes both. Or it rewrites the text instead of deleting it. Or it tidies three files you never mentioned.
+
+**Your setup is locked to one vendor.** Rules live in `CLAUDE.md`, or `.cursorrules`, or `AGENTS.md` — each tied to one tool. Switch agents and you start over. No vendor will fix this, because none of them has a reason to make your rules work inside a competitor's product.
+
+## What it does
+
+### Asks before it guesses
+
+Every request is sorted into one of four bands: run it, infer the obvious detail, ask a clarifying question, or refuse. When your description matches two identical elements, you get asked which one — instead of finding out in code review. When the thing you named doesn't exist, you're told before an agent goes looking for it.
+
+### Your rules follow you to every agent
+
+Super Terminal reads the instruction files you already have — `CLAUDE.md`, `.cursorrules`, `AGENTS.md`, `.super-t/rules.md`, `context.md`, and skill files — and applies all of them to whichever agent runs the task.
 
 ```sh
-glint --version
-glint connect
+super-t init             # draft a starter .super-t/rules.md
 ```
 
-> macOS/Linux: if npm complains about permissions, either run the command with `sudo`, or point npm at a user directory once: `npm config set prefix ~/.local` (make sure `~/.local/bin` is on your PATH).
+Drop a `context.md` in your project and every agent gets the same background.
 
-Alternatives:
+### Verifies after the run, not just before
+
+A rule saying "never modify `src/generated`" isn't a suggestion. Super Terminal checks the files that actually changed once the agent finishes — whichever agent it was — and offers to restore anything that broke the rule.
+
+### Chains agents into one workflow
 
 ```sh
-npm install -g github:Waqas-Baloch/glint   # straight from GitHub (needs git)
-
-git clone https://github.com/Waqas-Baloch/glint && cd glint
-npm install && npm run build && npm link    # local development
+super-t flow "audit auth with claude,
+              then fix the findings with cursor,
+              then review the diff with codex"
 ```
 
-## Connect (one time)
+One command. Each step runs on the agent you named, and each step's output is handed to the next.
+
+### Compares agents on the same task
 
 ```sh
-glint connect
+super-t compare "tighten the error handling in the payment module"
 ```
 
-Pick how Glint talks to Claude:
+Runs one task through every connected agent so you can keep the best result.
 
-| Option | What it needs | Notes |
-|---|---|---|
-| **Anthropic API key** | Key from console.anthropic.com | Verified, then stored in `~/.glint/config.json` (chmod 600) |
-| **Browser login** | The `ant` CLI installed | Opens `ant auth login` — no key ever stored |
-| **Claude Code** | The `claude` CLI installed | Reuses your Claude subscription; runs live, undo with `glint revert` |
-| **Cursor** | The `cursor-agent` CLI installed | Reuses your Cursor subscription; no git required |
-| **ChatGPT (Codex)** | The `codex` CLI installed (`npm i -g @openai/codex`) | Reuses your ChatGPT plan; no git required |
+### Shows what changed, and undoes it
 
-`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` env vars always take precedence over the stored connection (for CI).
-
-## Usage
+Not just `+12 −4` but *"styles and attributes only — no symbols or copy affected."*
 
 ```sh
-# Dry run — see exactly what would be selected and sent (no API call)
-glint plan "add checkout form"
-glint plan "add checkout form" --show          # print the full manifest
-glint plan "add checkout form" --out ctx.md    # save the manifest to a file
-
-# Start a session: runs the task, then keeps taking tasks until /exit
-glint run "add checkout form"
-glint run              # start an empty session
-
-# Find a project anywhere and start a session there
-glint search           # pick from projects found nearby
-glint search shop      # filter by name
-
-# Change the active coding agent (Claude Code / Cursor / ChatGPT / API)
-glint switch
-
-# Undo the last run
-glint revert
+super-t revert           # restore the last run
 ```
 
-In a terminal, `glint run` is a persistent session — after each task finishes you're prompted for the next one, chat-style, until `/exit` or Ctrl-C. With `--yes` or piped input it behaves as a single-shot command for scripts/CI.
+## Commands
 
-At the send confirmation you can **View** the exact manifest or **Edit** it in your `$EDITOR` before it goes out — so if the selected context isn't quite right, you can tweak it first.
-
-**Inside a session** you can type commands instead of a task:
-
-| Command | Does |
+| Command | What it does |
 |---|---|
-| `/switch` | change the coding agent, mid-session |
-| `/search` | switch to a different project folder |
-| `/connect` | set up or re-authenticate a provider |
-| `/help` | list these commands |
-| `/exit` | end the session |
+| `super-t run "task"` | Start a session and run tasks until you exit |
+| `super-t plan "task"` | Preview what would be sent — nothing is sent |
+| `super-t flow "a, then b"` | Multi-step, multi-agent workflow |
+| `super-t compare "task"` | Same task through every connected agent |
+| `super-t connect` | One-time setup — pick your agent |
+| `super-t switch` | Change the active agent |
+| `super-t search` | Switch project |
+| `super-t init` | Draft a starter rules file |
+| `super-t revert` | Restore files from the last run |
+| `super-t forget` | Clear learned disambiguation choices |
+| `super-t telemetry` | Show or change anonymous usage counting |
 
-If your chosen agent CLI (Claude Code / Cursor / Codex) isn't installed, `glint connect` offers to install it and run its login for you.
+## Supported agents
 
-`glint run` flags:
+Claude Code, Cursor, and ChatGPT Codex. Super Terminal uses the subscription you already have — it never asks for a separate API key of its own.
 
-| Flag | Effect |
-|---|---|
-| `--budget <tokens>` | Manifest token budget (default 30000) |
-| `--model <id>` | Claude model (default `claude-opus-4-8`) |
-| `-y, --yes` | Skip the confirmation prompt |
-| `--no-validate` | Skip tsc/eslint/test after edits |
+## Privacy
 
-## How it works
+Your code goes only to the AI agent you chose, the same place it already goes when you use that agent directly. Super Terminal adds no separate destination for your source code.
 
-1. **Index** — scans the repo (respects `.gitignore`, skips lockfiles/binaries)
-2. **Map** — builds an import graph + exported symbols via ts-morph (resolves `@/` aliases), plus JSX/HTML/CSS property-level anchors (prop values, ids, classes)
-3. **Rank** — the [Context Ranking Specification](docs/ranking-spec.md): classifies the task (ui/copy/logic/style/data/api/config/test/infra), seeds anchor units, expands outward through the dependency graph with distance decay, scores every candidate on 9 weighted signals (hierarchy, semantic match, dependency, ownership, proximity, recency, verification, confidence, noise), then packs primary/supporting/optional tiers under the token budget
-4. **Manifest** — one dense Markdown doc: project facts, task-type + anchors, full text for primary/supporting, signatures for optional
-5. **Edit loop** — Claude works through 4 narrow tools (`read_file`, `list_files`, `str_replace`, `write_file`). No shell, no network. Edits are staged, originals backed up to `.glint/backup/`, then applied
-6. **Validate** — runs `tsc --noEmit`, `eslint`, and `npm test` (each only if the repo has it configured); failures are fed back to Claude for up to 2 repair rounds
-7. **Report** — colored unified diff, touched-file summary, token usage + cost
-
-## Config (optional)
-
-`.glintrc.json` in your repo root:
-
-```json
-{
-  "model": "claude-opus-4-8",
-  "budgetTokens": 30000,
-  "include": ["extra/glob/**"],
-  "exclude": ["generated/**"]
-}
-```
-
-## Safety model
-
-- Claude can only read repo files and stage edits — no bash, no network, no paths outside the repo
-- `.git`, `node_modules`, lockfiles, and `.glint` are never editable
-- Every modified file is backed up before writing; `glint revert` restores the last run in one command
-- Nothing is sent anywhere until you confirm (or pass `--yes`)
-
-## Development
+It does send anonymous usage counts — which agent, which command, whether a task finished, plus version and OS. Never your prompts, filenames, paths, code, diffs, or repo names; the fields that may be transmitted are enumerated in [`src/util/telemetry.ts`](src/util/telemetry.ts) and covered by tests.
 
 ```sh
-npm run typecheck && npm test   # 71 tests, all offline
-npm run dev                     # rebuild on change
+super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 ```
+
+## Upgrading from Glint
+
+Super Terminal was previously published as `getglint` with the `glint` command.
+
+```sh
+npm uninstall -g getglint
+npm install -g superterminal
+```
+
+Your existing setup keeps working. Connections, project rules, learned choices, and run backups written under `.glint/` (and `~/.glint/`) are still read, so you don't need to reconnect or lose an undo. New state is written to `.super-t/`. The `GLINT_*` environment variables are still honoured — including `GLINT_TELEMETRY=0`, so an existing opt-out stays an opt-out.
+
+## Requirements
+
+Node 20 or later. macOS and Linux are tested; Windows is untested.
+
+## License
+
+MIT

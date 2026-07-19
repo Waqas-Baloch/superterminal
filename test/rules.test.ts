@@ -5,6 +5,7 @@ import os from "node:os";
 import { loadRules, renderRulesSection, extractProtectedPaths, protectedMatch } from "../src/core/rules";
 import { generateManifest } from "../src/core/manifest";
 import type { Selection } from "../src/core/selector";
+import { STATE_DIR } from "../src/util/paths";
 
 let dir: string;
 beforeEach(async () => {
@@ -23,11 +24,11 @@ describe("loadRules — read what teams already have", () => {
   it("reads existing agent files (CLAUDE.md, .cursorrules) and Glint's own", async () => {
     await fs.writeFile(path.join(dir, "CLAUDE.md"), "Never edit files under generated/.");
     await fs.writeFile(path.join(dir, ".cursorrules"), "Use tabs, not spaces.");
-    await fs.mkdir(path.join(dir, ".glint"), { recursive: true });
-    await fs.writeFile(path.join(dir, ".glint", "rules.md"), "Run npm test before finishing.");
+    await fs.mkdir(path.join(dir, STATE_DIR), { recursive: true });
+    await fs.writeFile(path.join(dir, STATE_DIR, "rules.md"), "Run npm test before finishing.");
 
     const rules = await loadRules(dir);
-    expect(rules.sources).toEqual([".glint/rules.md", "CLAUDE.md", ".cursorrules"]);
+    expect(rules.sources).toEqual([`${STATE_DIR}/rules.md`, "CLAUDE.md", ".cursorrules"]);
     expect(rules.text).toContain("Never edit files under generated/.");
     expect(rules.text).toContain("Use tabs, not spaces.");
     expect(rules.text).toContain("Run npm test before finishing.");
@@ -106,15 +107,15 @@ describe("glint init — drafts a starter rules file", () => {
     process.chdir(dir);
     try {
       await initCommand();
-      const written = await fs.readFile(path.join(dir, ".glint", "rules.md"), "utf8");
+      const written = await fs.readFile(path.join(dir, STATE_DIR, "rules.md"), "utf8");
       expect(written).toContain("dist/"); // detected generated dir
       expect(written).toContain("npm test"); // detected test script
       expect(written).toContain("# Super Terminal project rules");
 
       // Second run must not overwrite the user's edits.
-      await fs.writeFile(path.join(dir, ".glint", "rules.md"), "MY EDITED RULES");
+      await fs.writeFile(path.join(dir, STATE_DIR, "rules.md"), "MY EDITED RULES");
       await initCommand();
-      expect(await fs.readFile(path.join(dir, ".glint", "rules.md"), "utf8")).toBe("MY EDITED RULES");
+      expect(await fs.readFile(path.join(dir, STATE_DIR, "rules.md"), "utf8")).toBe("MY EDITED RULES");
     } finally {
       process.chdir(cwd);
     }

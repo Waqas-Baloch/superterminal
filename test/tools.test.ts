@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { EditStage } from "../src/claude/tools";
+import { STATE_DIR } from "../src/util/paths";
 
 let dir: string;
 let stage: EditStage;
@@ -60,10 +61,10 @@ describe("EditStage apply", () => {
     expect(await fs.readFile(path.join(dir, "src", "new.ts"), "utf8")).toContain("fresh");
 
     // backup holds the original; created.json lists the new file
-    const backup = await fs.readFile(path.join(dir, ".glint", "backup", "run-1", "files", "src", "a.ts"), "utf8");
+    const backup = await fs.readFile(path.join(dir, STATE_DIR, "backup", "run-1", "files", "src", "a.ts"), "utf8");
     expect(backup).toContain("const y = 2;");
     const createdJson = JSON.parse(
-      await fs.readFile(path.join(dir, ".glint", "backup", "run-1", "created.json"), "utf8"),
+      await fs.readFile(path.join(dir, STATE_DIR, "backup", "run-1", "created.json"), "utf8"),
     );
     expect(createdJson).toEqual(["src/new.ts"]);
   });
@@ -74,7 +75,7 @@ describe("EditStage apply", () => {
     await stage.strReplace("src/a.ts", "const y = 20;", "const y = 200;");
     await stage.apply("run-2");
 
-    const backup = await fs.readFile(path.join(dir, ".glint", "backup", "run-2", "files", "src", "a.ts"), "utf8");
+    const backup = await fs.readFile(path.join(dir, STATE_DIR, "backup", "run-2", "files", "src", "a.ts"), "utf8");
     expect(backup).toContain("const y = 2;"); // original, not the intermediate state
     expect(stage.allTouched).toEqual(["src/a.ts"]);
   });

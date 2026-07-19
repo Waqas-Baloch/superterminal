@@ -32,5 +32,5 @@ export async function connectCommand(): Promise<void> {
   await track("connected", null, { agent: String(provider) });
 
   log.info("");
-  log.info(`Try it: ${pc.bold('glint run "add a loading spinner to the submit button"')}`);
+  log.info(`Try it: ${pc.bold('super-t run "add a loading spinner to the submit button"')}`);
 }

@@ -4,6 +4,7 @@ import path from "node:path";
 import fg from "fast-glob";
 import ignore from "ignore";
 import type { GlintConfig } from "../util/config";
+import { STATE_IGNORE_GLOBS, stateDir } from "../util/paths";
 
 export interface IndexedFile {
   path: string; // repo-relative, posix separators
@@ -38,7 +39,7 @@ const ALWAYS_EXCLUDE = [
   "**/.next/**",
   "**/out/**",
   "**/coverage/**",
-  "**/.glint/**",
+  ...STATE_IGNORE_GLOBS,
   "**/.squash/**",
   "**/package-lock.json",
   "**/pnpm-lock.yaml",
@@ -99,7 +100,7 @@ function countLines(buf: Buffer): number {
 }
 
 async function writeCache(root: string, index: RepoIndex): Promise<void> {
-  const dir = path.join(root, ".glint");
+  const dir = stateDir(root);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, "index.json"), JSON.stringify(index, null, 2));
 }

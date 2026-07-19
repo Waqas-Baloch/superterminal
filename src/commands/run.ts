@@ -38,6 +38,7 @@ import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { track, firstRunNotice } from "../util/telemetry";
 import { printSelection, printBand, printSemanticSummary } from "./shared";
+import { stateDir } from "../util/paths";
 
 const MAX_REPAIRS = 2;
 
@@ -73,7 +74,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   const auth = await resolveAuth();
   if (!auth) {
     log.error("Not connected to an AI provider.");
-    log.info("Run `glint connect` for one-time setup — API key, browser login, Claude Code, Cursor, or ChatGPT.");
+    log.info("Run `super-t connect` for one-time setup — API key, browser login, Claude Code, Cursor, or ChatGPT.");
     await track("error", null, { code: "no_auth" }); // the classic drop-off point
     process.exitCode = 1;
     return;
@@ -94,7 +95,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   const sessionMode = Boolean(process.stdin.isTTY) && opts.yes !== true;
   if (!sessionMode) {
     if (!taskArg) {
-      log.error('No task given. Usage: glint run "add a checkout form"');
+      log.error('No task given. Usage: super-t run "add a checkout form"');
       process.exitCode = 1;
       return;
     }
@@ -191,7 +192,7 @@ export function interpret(input: string): SessionCommand {
   const m = raw.match(/^(?:\/|glint\s+)(run|plan|flow|compare|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
-    // People naturally type `glint flow "…"` inside the session — drop the
+    // People naturally type `super-t flow "…"` inside the session — drop the
     // quotes so they don't leak into the first and last step.
     const rest = m[2].trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
     const nav = navCommand(name);
@@ -578,7 +579,7 @@ async function handleScopeViolation(
     proceed = ans.fix === true;
   }
   if (!proceed) {
-    log.dim("Left as-is. `glint revert` undoes the whole run.");
+    log.dim("Left as-is. `super-t revert` undoes the whole run.");
     process.exitCode = 1;
     return;
   }
@@ -604,7 +605,7 @@ async function handleScopeViolation(
   if (restored > 0) {
     log.success(`Restored ${restored} region${restored === 1 ? "" : "s"} across ${files} file${files === 1 ? "" : "s"} — the rest of the change is kept.`);
   } else {
-    log.warn("Couldn't isolate the out-of-scope edit cleanly. `glint revert` undoes the whole run.");
+    log.warn("Couldn't isolate the out-of-scope edit cleanly. `super-t revert` undoes the whole run.");
     process.exitCode = 1;
   }
 }
@@ -646,7 +647,7 @@ async function handleRuleViolation(
     restore = ans.fix === true;
   }
   if (!restore) {
-    log.dim("Left as-is. `glint revert` undoes the whole run.");
+    log.dim("Left as-is. `super-t revert` undoes the whole run.");
     process.exitCode = 1;
     return;
   }
@@ -666,7 +667,7 @@ async function handleRuleViolation(
 
 /** Read a file's pre-run content from the most recent backup. */
 async function readBackupBefore(root: string, rel: string): Promise<string | null> {
-  const backupRoot = nodePath.join(root, ".glint", "backup");
+  const backupRoot = nodePath.join(stateDir(root), "backup");
   let runs: string[] = [];
   try {
     runs = (await fs.readdir(backupRoot)).sort();
@@ -691,7 +692,7 @@ function printContextSummary(sentTokens: number, repoTokens: number): void {
 }
 
 // ---------------------------------------------------------------------------
-// Provider: Anthropic API (built-in edit loop, staged edits, glint revert)
+// Provider: Anthropic API (built-in edit loop, staged edits, super-t revert)
 // ---------------------------------------------------------------------------
 
 async function runViaApi(
@@ -733,7 +734,7 @@ async function runViaApi(
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   await stage.apply(runId);
-  const backupFilesDir = nodePath.join(root, ".glint", "backup", runId, "files");
+  const backupFilesDir = nodePath.join(stateDir(root), "backup", runId, "files");
 
   let validationFailed = false;
   if (opts.validate !== false) {
@@ -745,7 +746,7 @@ async function runViaApi(
       if (attempt >= MAX_REPAIRS) {
         validationFailed = true;
         log.error(
-          `Validation still failing after ${MAX_REPAIRS} repair attempts. Edits are kept — review the diff, fix manually, or run \`glint revert\`.`,
+          `Validation still failing after ${MAX_REPAIRS} repair attempts. Edits are kept — review the diff, fix manually, or run \`super-t revert\`.`,
         );
         break;
       }
@@ -789,7 +790,7 @@ async function runViaApi(
     log.info(summary);
   }
   log.info("");
-  log.dim("Undo anytime with `glint revert`.");
+  log.dim("Undo anytime with `super-t revert`.");
 
   if (validationFailed) process.exitCode = 1;
   return { touched: stage.allTouched, summary };
@@ -894,7 +895,7 @@ async function runViaAgentCli(
   log.info("");
   log.info(`${changes.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   log.info("");
-  log.dim("Undo anytime with `glint revert`.");
+  log.dim("Undo anytime with `super-t revert`.");
 
   if (validationFailed) process.exitCode = 1;
   return { touched: changes.map((c) => c.path), summary: "" };
@@ -919,7 +920,7 @@ async function snapshotContents(root: string, index: RepoIndex): Promise<Map<str
 
 /**
  * Compare the tree against the snapshot, back up modified originals to
- * .glint/backup/<runId>/ (so `glint revert` works), and return the diffs.
+ * <state>/backup/<runId>/ (so `super-t revert` works), and return the diffs.
  */
 async function backupAndDiff(
   root: string,
@@ -928,7 +929,7 @@ async function backupAndDiff(
   runId: string,
 ): Promise<FileChange[]> {
   const after = await indexRepo(root, config); // re-scan to pick up newly created files
-  const backupFilesDir = nodePath.join(root, ".glint", "backup", runId, "files");
+  const backupFilesDir = nodePath.join(stateDir(root), "backup", runId, "files");
   const created: string[] = [];
   const changes: FileChange[] = [];
 
@@ -948,9 +949,9 @@ async function backupAndDiff(
   }
 
   if (created.length > 0) {
-    await fs.mkdir(nodePath.join(root, ".glint", "backup", runId), { recursive: true });
+    await fs.mkdir(nodePath.join(stateDir(root), "backup", runId), { recursive: true });
     await fs.writeFile(
-      nodePath.join(root, ".glint", "backup", runId, "created.json"),
+      nodePath.join(stateDir(root), "backup", runId, "created.json"),
       JSON.stringify(created, null, 2),
     );
   }
@@ -992,6 +993,6 @@ function printFileDiff(rel: string, created: boolean, added: number, removed: nu
 function hintAuth(err: unknown): void {
   const msg = err instanceof Error ? err.message : "";
   if (err instanceof Anthropic.AuthenticationError || msg.includes("authentication method")) {
-    log.info("Credentials were rejected or missing. Run `glint connect` to (re)connect.");
+    log.info("Credentials were rejected or missing. Run `super-t connect` to (re)connect.");
   }
 }

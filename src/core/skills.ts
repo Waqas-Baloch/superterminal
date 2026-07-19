@@ -2,13 +2,14 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import fg from "fast-glob";
 import { STOPWORDS } from "./selector";
+import { ALL_STATE_DIRS } from "../util/paths";
 
 // Skills — reusable know-how ("how we add an API endpoint", "how we write
 // tests here") that should apply no matter which agent runs. Rules are always
 // on; a skill is conditional: Glint matches it to the task and injects it only
 // when it's relevant, so the manifest stays lean.
 //
-// Glint reads its own .glint/skills/ AND Claude Code's .claude/skills/, so a
+// Super Terminal reads its own <state>/skills/ AND Claude Code's .claude/skills/, so a
 // team that already wrote skills for one agent gets them working with all of
 // them without migrating anything.
 
@@ -21,8 +22,7 @@ export interface Skill {
 }
 
 const SKILL_GLOBS = [
-  ".glint/skills/*/SKILL.md",
-  ".glint/skills/*.md",
+  ...ALL_STATE_DIRS.flatMap((d) => [`${d}/skills/*/SKILL.md`, `${d}/skills/*.md`]),
   ".claude/skills/*/SKILL.md",
   ".claude/skills/*.md",
 ];

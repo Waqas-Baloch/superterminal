@@ -15,16 +15,17 @@ import { searchCommand } from "./commands/search";
 import { renderHeader } from "./report/banner";
 import { applyTheme } from "./report/theme";
 import { VERSION } from "./version";
+import { STATE_DIR } from "./util/paths";
 
-// Paint the terminal in Glint's theme (light-blue background, blue text) for
+// Paint the terminal in Super Terminal's theme (blue background, light text) for
 // the session; restored on exit.
 applyTheme();
 
 const program = new Command();
 
 program
-  .name("glint")
-  .description("Compress a codebase into a task-specific manifest for any AI coding agent")
+  .name("super-t")
+  .description("One control layer for every AI coding agent — Claude Code, Cursor, and ChatGPT Codex")
   .version(VERSION);
 
 program
@@ -37,7 +38,7 @@ program
   .option("--no-focus", "send whole files instead of task-relevant excerpts")
   .option("--no-ask", "skip clarifying questions")
   .option("--surgical", "experimental: restrict Claude Code to a direct edit (no repo exploration) to measure token cost")
-  .description("start a glint session: run tasks continuously until /exit")
+  .description("start a Super Terminal session: run tasks continuously until /exit")
   .action(runCommand);
 
 program
@@ -47,12 +48,12 @@ program
   .option("--no-focus", "send whole files instead of task-relevant excerpts")
   .option("--show", "print the full generated manifest")
   .option("--out <file>", "write the manifest to a file")
-  .description("dry run: show what would be selected and sent, without calling Claude")
+  .description("dry run: show what would be selected and sent, without calling an agent")
   .action(planCommand);
 
 program
   .command("init")
-  .description("draft a .glint/rules.md for this repo (rules Glint applies to every agent)")
+  .description(`draft a ${STATE_DIR}/rules.md for this repo (rules applied to every agent)`)
   .action(initCommand);
 
 program
@@ -67,7 +68,7 @@ program
 
 program
   .command("search")
-  .argument("[query]", "optional name filter, e.g. glint search shop")
+  .argument("[query]", "optional name filter, e.g. super-t search shop")
   .description("find a project folder and start a session there")
   .action(searchCommand);
 
@@ -99,7 +100,7 @@ program
 
 program
   .command("forget")
-  .description("clear the choices Glint has learned for this repo (.glint/intent.json)")
+  .description(`clear the choices learned for this repo (${STATE_DIR}/intent.json)`)
   .action(forgetCommand);
 
 // Counted once per machine, whichever command brought them here. Awaited so a

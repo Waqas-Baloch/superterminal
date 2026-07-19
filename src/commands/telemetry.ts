@@ -2,7 +2,7 @@ import pc from "picocolors";
 import { setEnabled, status } from "../util/telemetry";
 import { log } from "../util/logger";
 
-// `glint telemetry [on|off|status]` — the off switch has to be as easy to find
+// `super-t telemetry [on|off|status]` — the off switch has to be as easy to find
 // as the notice that mentions it.
 
 export async function telemetryCommand(action?: string): Promise<void> {
@@ -19,7 +19,7 @@ export async function telemetryCommand(action?: string): Promise<void> {
     return;
   }
   if (verb !== "status") {
-    log.error(`Unknown option "${action}". Use: glint telemetry [on|off|status]`);
+    log.error(`Unknown option "${action}". Use: super-t telemetry [on|off|status]`);
     process.exitCode = 1;
     return;
   }
@@ -33,5 +33,5 @@ export async function telemetryCommand(action?: string): Promise<void> {
   log.dim(`  Anonymous id: ${s.installId}`);
   log.dim("  Sent: which agent, which command, whether it finished, version, OS.");
   log.dim("  Never sent: prompts, filenames, paths, code, diffs, repo names.");
-  log.dim(s.enabled ? "  Turn off: glint telemetry off" : "  Turn on: glint telemetry on");
+  log.dim(s.enabled ? "  Turn off: super-t telemetry off" : "  Turn on: super-t telemetry on");
 }

@@ -144,7 +144,7 @@ export interface AgentCliDef {
   id: AgentCliId;
   title: string;
   bin: string;
-  installCmd: string; // shell command for `glint connect` to offer
+  installCmd: string; // shell command for `super-t connect` to offer
   installHint: string;
   loginArgs: string[] | null; // interactive login after install; null = manual
   loginHint: string;

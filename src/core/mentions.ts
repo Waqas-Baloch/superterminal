@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import fg from "fast-glob";
+import { STATE_IGNORE_GLOBS } from "./../util/paths";
 
 // Files the prompt names. Two jobs from one resolver:
 //   1. If you mention a file that exists ("…using landing-page.md"), its
@@ -10,7 +11,7 @@ import fg from "fast-glob";
 //      Glint found the file before you hit enter.
 
 const FILE_TOKEN = /\b([\w.-]+(?:\/[\w.-]+)*\.[a-zA-Z0-9]{1,6})\b/g;
-const IGNORE = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", "**/.glint/backup/**"];
+const IGNORE = ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**", ...STATE_IGNORE_GLOBS];
 const MAX_FILES = 3;
 const MAX_CHARS = 6000;
 

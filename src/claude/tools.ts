@@ -2,14 +2,15 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { RepoIndex } from "../core/indexer";
+import { ALL_STATE_DIRS, stateDir } from "../util/paths";
 
 const MAX_READ_CHARS = 60_000;
-const BLOCKED_SEGMENTS = new Set([".git", "node_modules", ".glint", ".squash"]);
+const BLOCKED_SEGMENTS = new Set([".git", "node_modules", ...ALL_STATE_DIRS]);
 const BLOCKED_FILES = new Set(["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"]);
 
 /**
  * Staging area for Claude's edits. Nothing touches disk until apply();
- * apply() backs up originals to .glint/backup/<runId>/ first.
+ * apply() backs up originals to <state>/backup/<runId>/ first.
  */
 export class EditStage {
   private staged = new Map<string, string>();
@@ -79,7 +80,7 @@ export class EditStage {
   }
 
   async apply(runId: string): Promise<{ modified: string[]; created: string[] }> {
-    const backupDir = nodePath.join(this.root, ".glint", "backup", runId);
+    const backupDir = nodePath.join(stateDir(this.root), "backup", runId);
     const filesDir = nodePath.join(backupDir, "files");
     const modified: string[] = [];
     const created: string[] = [];

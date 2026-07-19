@@ -3,7 +3,7 @@ import { diffLines } from "diff";
 // Surgical revert: undo only the part of an edit that went out of scope, and
 // keep the rest. When the agent changes both identical buttons but you asked it
 // to keep the footer one, this rebuilds the file with the footer restored to
-// its original and the nav change left intact — instead of `glint revert`
+// its original and the nav change left intact — instead of `super-t revert`
 // throwing away the whole run.
 
 export interface SurgicalResult {

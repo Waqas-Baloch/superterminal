@@ -3,7 +3,7 @@ import type { AgentCliId } from "../util/globalConfig";
 // A flow is a multi-step task where each step names the agent that should run
 // it and (optionally) the skill to apply — outputs pass forward:
 //
-//   glint flow "audit auth with claude using the security skill,
+//   super-t flow "audit auth with claude using the security skill,
 //               then implement the fixes with cursor,
 //               then review the diff with codex"
 //

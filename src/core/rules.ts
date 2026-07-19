@@ -1,12 +1,13 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import fg from "fast-glob";
+import { ALL_STATE_DIRS } from "../util/paths";
 
 // Project rules — the heart of the neutral layer. Teams already keep AI
 // instructions in files like CLAUDE.md, .cursorrules, or AGENTS.md, each tied
 // to one agent. Glint reads them ALL and applies them to whichever agent runs,
 // so a rule written once holds across Claude Code, Cursor, and Codex. Plus an
-// optional Glint-native file (.glint/rules.md) for anything agent-agnostic.
+// optional native file (<state>/rules.md) for anything agent-agnostic.
 
 export interface LoadedRules {
   text: string; // combined rules to inject into the manifest
@@ -18,7 +19,7 @@ const MAX_RULES_CHARS = 8000; // keep the manifest lean (~2k tokens)
 // Known instruction files, in priority order. Glint-native first, then the
 // per-agent files teams may already have.
 const RULE_FILES = [
-  ".glint/rules.md",
+  ...ALL_STATE_DIRS.map((d) => `${d}/rules.md`),
   "CLAUDE.md",
   "AGENTS.md",
   ".cursorrules",
@@ -29,7 +30,13 @@ const RULE_GLOBS = [".cursor/rules/*.md", ".cursor/rules/*.mdc"];
 
 // Project context — what the project *is*, as opposed to rules, which
 // constrain what an agent may do. Always injected when present, for every agent.
-const CONTEXT_FILES = [".glint/context.md", "context.md", "CONTEXT.md", "docs/context.md", "PROJECT.md"];
+const CONTEXT_FILES = [
+  ...ALL_STATE_DIRS.map((d) => `${d}/context.md`),
+  "context.md",
+  "CONTEXT.md",
+  "docs/context.md",
+  "PROJECT.md",
+];
 
 export async function loadContext(root: string): Promise<LoadedRules> {
   return readAll(root, CONTEXT_FILES);

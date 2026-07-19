@@ -137,7 +137,7 @@ async function recallDuplicateChoice(
   return {
     refinement: duplicateConstraint(dup.phrase, change, keep),
     scope: { phrase: dup.phrase, change, keep },
-    note: `Remembered choice for “${dup.phrase}”: ${sectionSummary(change)} (undo with \`glint forget\`).`,
+    note: `Remembered choice for “${dup.phrase}”: ${sectionSummary(change)} (undo with \`super-t forget\`).`,
   };
 }
 

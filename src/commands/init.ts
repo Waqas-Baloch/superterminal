@@ -3,30 +3,41 @@ import nodePath from "node:path";
 import pc from "picocolors";
 import { loadRules } from "../core/rules";
 import { log } from "../util/logger";
+import { stateDir, STATE_DIR, findStateFile } from "../util/paths";
 
 // Directories that usually hold generated/vendored output — worth protecting
 // by default so an agent regenerates from source instead of hand-editing them.
 const CANDIDATE_GENERATED = ["dist", "build", "generated", ".next", "out", "coverage", "vendor"];
 
 /**
- * `glint init` — make the neutral layer effortless. Super Terminal already reads any
- * existing agent instruction files; this just drafts a starter .glint/rules.md
+ * `super-t init` — make the neutral layer effortless. Super Terminal already reads any
+ * existing agent instruction files; this just drafts a starter <state>/rules.md
  * from what it detects, so a team gets useful, editable rules without staring
  * at a blank file. Nothing here is required — it's a convenience.
  */
 export async function initCommand(): Promise<void> {
   const root = process.cwd();
-  const rulesPath = nodePath.join(root, ".glint", "rules.md");
+  const rulesPath = nodePath.join(stateDir(root), "rules.md");
 
-  // Rule files Glint already applies across every agent.
-  const existing = (await loadRules(root)).sources.filter((s) => s !== ".glint/rules.md");
+  // Rule files already applied across every agent.
+  const existing = (await loadRules(root)).sources.filter((s) => !s.endsWith("/rules.md"));
   if (existing.length > 0) {
     log.info(`Super Terminal already reads ${pc.bold(existing.join(", "))} — those rules now apply to every agent.`);
     log.info("");
   }
 
   if (await exists(rulesPath)) {
-    log.info(`${pc.bold(".glint/rules.md")} already exists — edit it to change your rules.`);
+    log.info(`${pc.bold(`${STATE_DIR}/rules.md`)} already exists — edit it to change your rules.`);
+    return;
+  }
+
+  // A rules file from an earlier brand is still read, so writing a second one
+  // would leave two live rule files with no indication which is in effect.
+  const legacy = await findStateFile(root, "rules.md");
+  if (legacy) {
+    const rel = nodePath.relative(root, legacy);
+    log.info(`${pc.bold(rel)} already exists and is still applied to every agent.`);
+    log.dim(`  To adopt the current location, move it: mv ${rel} ${STATE_DIR}/rules.md`);
     return;
   }
 
@@ -57,7 +68,7 @@ export async function initCommand(): Promise<void> {
 
   await fs.mkdir(nodePath.dirname(rulesPath), { recursive: true });
   await fs.writeFile(rulesPath, draft);
-  log.success(`Created ${pc.bold(".glint/rules.md")} — a starter draft from what Glint detected in your project.`);
+  log.success(`Created ${pc.bold(`${STATE_DIR}/rules.md`)} — a starter draft from what Super Terminal detected in your project.`);
   log.dim("Commit it to share with your team. Super Terminal applies it to whichever agent runs — and verifies it too.");
 }
 

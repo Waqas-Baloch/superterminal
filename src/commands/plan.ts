@@ -28,7 +28,7 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
   const index = await indexRepo(root, config);
   if (index.files.length === 0) {
     spinner.succeed("No source files yet — nothing to compress.");
-    log.info("`glint run` will start in scaffold mode and build the project from scratch.");
+    log.info("`super-t run` will start in scaffold mode and build the project from scratch.");
     return;
   }
 
@@ -68,8 +68,8 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
 
   log.dim(
     opts.show || opts.out
-      ? "Dry run — nothing sent. Execute with `glint run`."
-      : "Dry run — nothing sent. Add `--show` to see the manifest, or run it with `glint run`.",
+      ? "Dry run — nothing sent. Execute with `super-t run`."
+      : "Dry run — nothing sent. Add `--show` to see the manifest, or run it with `super-t run`.",
   );
 }
 

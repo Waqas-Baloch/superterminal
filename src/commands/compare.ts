@@ -13,6 +13,7 @@ import { loadConfig, type GlintConfig } from "../util/config";
 import { renderFileDiff } from "../report/diff";
 import { spin } from "../report/spinner";
 import { log } from "../util/logger";
+import { stateDir } from "../util/paths";
 
 // Cross-agent A/B — the one thing no agent vendor can ever ship: run the SAME
 // task through two (or more) agents on identical context, show the results side
@@ -45,7 +46,7 @@ export async function compareCommand(task: string, opts: { budget?: string } = {
   for (const a of Object.values(AGENT_CLIS)) if (await isInstalled(a.bin)) agents.push(a);
   if (agents.length < 2) {
     log.warn("Compare needs at least two agent CLIs installed (Claude Code, Cursor, ChatGPT/Codex).");
-    log.dim(`Found: ${agents.map((a) => a.title).join(", ") || "none"}. Add another with \`glint connect\`.`);
+    log.dim(`Found: ${agents.map((a) => a.title).join(", ") || "none"}. Add another with \`super-t connect\`.`);
     process.exitCode = 1;
     return;
   }
@@ -138,7 +139,7 @@ async function chooseAndApply(root: string, results: AgentResult[]): Promise<voi
   const chosen = results[Number(ans.pick)];
   await backupThenApply(root, chosen.files);
   log.success(`Applied ${chosen.agent.title}'s changes — ${chosen.files.length} file(s).`);
-  log.dim("Undo anytime with `glint revert`.");
+  log.dim("Undo anytime with `super-t revert`.");
 }
 
 // ── file-state helpers (exported for tests) ──────────────────────────────────
@@ -178,10 +179,10 @@ export async function restoreTo(root: string, before: Map<string, string | null>
   }
 }
 
-/** Write a backup (so `glint revert` works) then apply the chosen agent's changes. */
+/** Write a backup (so `super-t revert` works) then apply the chosen agent's changes. */
 async function backupThenApply(root: string, files: FileChange[]): Promise<void> {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const filesDir = nodePath.join(root, ".glint", "backup", runId, "files");
+  const filesDir = nodePath.join(stateDir(root), "backup", runId, "files");
   const created: string[] = [];
   for (const f of files) {
     if (f.created) {
@@ -192,8 +193,8 @@ async function backupThenApply(root: string, files: FileChange[]): Promise<void>
       await fs.writeFile(dest, f.before);
     }
   }
-  await fs.mkdir(nodePath.join(root, ".glint", "backup", runId), { recursive: true });
-  await fs.writeFile(nodePath.join(root, ".glint", "backup", runId, "created.json"), JSON.stringify(created));
+  await fs.mkdir(nodePath.join(stateDir(root), "backup", runId), { recursive: true });
+  await fs.writeFile(nodePath.join(stateDir(root), "backup", runId, "created.json"), JSON.stringify(created));
 
   for (const f of files) {
     const abs = nodePath.join(root, f.path);

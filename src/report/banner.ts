@@ -233,10 +233,10 @@ export async function renderHeader(version: string, mode: "welcome" | "session" 
         ]
       : [
           pc.bold("Getting started"),
-          cmd("glint run", '"task"', "start a session"),
-          cmd("glint switch", "", "change agent"),
-          cmd("glint search", "", "switch project"),
-          cmd("glint plan", '"task"', "preview (free)"),
+          cmd("super-t run", '"task"', "start a session"),
+          cmd("super-t switch", "", "change agent"),
+          cmd("super-t search", "", "switch project"),
+          cmd("super-t plan", '"task"', "preview (free)"),
         ];
   const right: string[] = [
     "", // align with the left column's top margin
@@ -273,7 +273,7 @@ function stacked(
   lines.push("");
   lines.push("  " + pc.dim(`one control layer for every AI coding agent · v${version}`));
   lines.push(
-    "  " + dot + " " + pc.dim(conn.connected ? `connected · ${conn.label}` : "not connected — run `glint connect`"),
+    "  " + dot + " " + pc.dim(conn.connected ? `connected · ${conn.label}` : "not connected — run `super-t connect`"),
   );
   return lines.join("\n");
 }

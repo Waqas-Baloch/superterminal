@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { indexRepo } from "../src/core/indexer";
 import { loadConfig } from "../src/util/config";
+import { STATE_DIR } from "../src/util/paths";
 
 let dir: string;
 
@@ -47,8 +48,8 @@ describe("indexRepo", () => {
     expect(app!.hash).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it("writes the index cache to .glint/index.json", async () => {
-    const cached = JSON.parse(await fs.readFile(path.join(dir, ".glint", "index.json"), "utf8"));
+  it(`writes the index cache to ${STATE_DIR}/index.json`, async () => {
+    const cached = JSON.parse(await fs.readFile(path.join(dir, STATE_DIR, "index.json"), "utf8"));
     expect(cached.files.length).toBeGreaterThan(0);
   });
 });

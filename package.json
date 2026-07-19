@@ -1,28 +1,32 @@
 {
-  "name": "getglint",
+  "name": "superterminal",
   "version": "1.0.42",
-  "description": "Glint — compress your codebase into a task-specific manifest for any AI coding agent. Precision context, fewer tokens.",
+  "description": "Super Terminal \u2014 one control layer for every AI coding agent. Write your rules once and they apply to Claude Code, Cursor, and ChatGPT Codex alike, and chain agents into a single workflow.",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Waqas-Baloch/glint.git"
+    "url": "git+https://github.com/Waqas-Baloch/superterminal.git"
   },
-  "homepage": "https://github.com/Waqas-Baloch/glint#readme",
-  "bugs": "https://github.com/Waqas-Baloch/glint/issues",
+  "homepage": "https://github.com/Waqas-Baloch/superterminal#readme",
+  "bugs": "https://github.com/Waqas-Baloch/superterminal/issues",
   "keywords": [
     "cli",
     "ai",
+    "ai-agent",
+    "coding-agent",
     "claude",
+    "claude-code",
     "cursor",
     "codex",
-    "context",
-    "tokens",
-    "code-agent",
-    "llm"
+    "chatgpt",
+    "llm",
+    "developer-tools",
+    "code-review",
+    "multi-agent"
   ],
   "bin": {
-    "glint": "dist/cli.js"
+    "super-t": "dist/cli.js"
   },
   "files": [
     "dist"

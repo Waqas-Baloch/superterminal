@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import crypto from "node:crypto";
-import { glintHome } from "./globalConfig";
+import { homeDir } from "./paths";
 import { VERSION } from "../version";
 
 // Anonymous usage counts, so we can see whether people get Glint working —
@@ -19,8 +19,9 @@ const BUILT_IN_KEY = "phc_tD3DNhmLnyV5MuhxRXLWVGzAcizSc5Jgav2FoqUZHFCK";
 
 // Read at call time, not import time: an env override has to work, and a test
 // that sets one has to actually exercise the network path.
-const projectKey = (): string => process.env.GLINT_TELEMETRY_KEY ?? BUILT_IN_KEY;
-const host = (): string => process.env.GLINT_TELEMETRY_HOST ?? "https://eu.i.posthog.com"; // EU project
+const projectKey = (): string => process.env.SUPER_T_TELEMETRY_KEY ?? process.env.GLINT_TELEMETRY_KEY ?? BUILT_IN_KEY;
+const host = (): string =>
+  process.env.SUPER_T_TELEMETRY_HOST ?? process.env.GLINT_TELEMETRY_HOST ?? "https://eu.i.posthog.com"; // EU project
 const TIMEOUT_MS = 800; // never make someone wait on analytics
 
 export type TelemetryEvent =
@@ -96,7 +97,7 @@ interface Ids {
 }
 
 function stateFile(): string {
-  return nodePath.join(glintHome(), "telemetry.json");
+  return nodePath.join(homeDir(), "telemetry.json");
 }
 
 async function readState(): Promise<Ids> {
@@ -124,16 +125,19 @@ async function readState(): Promise<Ids> {
 
 async function writeState(s: Ids): Promise<void> {
   try {
-    await fs.mkdir(glintHome(), { recursive: true });
+    await fs.mkdir(homeDir(), { recursive: true });
     await fs.writeFile(stateFile(), JSON.stringify(s, null, 2) + "\n", { mode: 0o600 });
   } catch {
     /* never let bookkeeping break a command */
   }
 }
 
-/** Off via env var, or via `glint telemetry off`. */
+/** Off via env var, or via `super-t telemetry off`. */
 export async function isEnabled(): Promise<boolean> {
-  const env = process.env.GLINT_TELEMETRY;
+  // GLINT_TELEMETRY is honoured permanently. Retiring it would silently
+  // resume collection from someone who had explicitly opted out — the one
+  // rename side effect that is not recoverable by apologising later.
+  const env = process.env.SUPER_T_TELEMETRY ?? process.env.GLINT_TELEMETRY;
   if (env === "0" || env?.toLowerCase() === "off" || env?.toLowerCase() === "false") return false;
   if (process.env.DO_NOT_TRACK === "1") return false; // consoledonottrack.com
   if (process.env.CI) return false; // CI installs aren't users
@@ -195,7 +199,7 @@ export async function firstRunNotice(): Promise<string | null> {
   const s = await readState();
   if (s.notified) return null;
   await writeState({ ...s, notified: true });
-  return "Super Terminal counts anonymous usage (which agent, whether a task finished) to see what's working.\nNever your prompts, filenames, or code. Turn it off: glint telemetry off";
+  return "Super Terminal counts anonymous usage (which agent, whether a task finished) to see what's working.\nNever your prompts, filenames, or code. Turn it off: super-t telemetry off";
 }
 
 /**

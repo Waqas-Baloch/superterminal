@@ -126,7 +126,7 @@ async function manualEntry(): Promise<string | null> {
 }
 
 /**
- * Standalone `glint search [query]`: pick a project, change into it, and start
+ * Standalone `super-t search [query]`: pick a project, change into it, and start
  * a session there. A CLI can't change the parent shell's directory, so we
  * chdir the Glint process itself and run the session in that root.
  */
