@@ -8,13 +8,12 @@ import { buildGraph } from "../core/mapper";
 import { selectFiles } from "../core/selector";
 import { generateManifest } from "../core/manifest";
 import { loadSkills } from "../core/skills";
-import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef, type AgentUsage } from "../claude/agentCli";
+import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef } from "../claude/agentCli";
 import { snapshot, diffAgainst } from "./compare";
 import { printSemanticSummary } from "./shared";
 import { renderFileDiff } from "../report/diff";
 import { loadConfig } from "../util/config";
 import { resolveAuth } from "../util/globalConfig";
-import { formatTokens } from "../util/tokens";
 import { pixelWave } from "../report/spinner";
 import { log } from "../util/logger";
 
@@ -129,9 +128,6 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   const skills = await loadSkills(root);
 
   let carried = ""; // the previous step's output, handed to the next
-  let totalIn = 0;
-  let totalOut = 0;
-  let totalCost = 0;
 
   for (const [i, { step, agent }] of resolved.entries()) {
     log.info("");
@@ -162,12 +158,10 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
 
     const wave = pixelWave(`${agent.title} is working…`);
     let text = "";
-    let usage: AgentUsage | null = null;
     try {
       const r = await runAgent(agent, root, prompt, () => wave.stop());
       wave.stop();
       text = r.text;
-      usage = r.usage;
     } catch (err) {
       wave.stop();
       log.error(err instanceof Error ? err.message : String(err));
@@ -176,11 +170,6 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
       return;
     }
 
-    if (usage) {
-      totalIn += usage.inputTokens;
-      totalOut += usage.outputTokens;
-      totalCost += usage.costUsd ?? 0;
-    }
     carried = text;
     await fs.writeFile(
       nodePath.join(outDir, `step-${i + 1}.md`),
@@ -209,10 +198,5 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     log.info(`${changes.length} file(s) changed, ${pc.green(`+${added}`)} ${pc.red(`−${removed}`)}`);
   }
 
-  if (totalIn > 0 || totalOut > 0) {
-    log.dim(
-      `Tokens (actual, across the flow): ${formatTokens(totalIn)} in / ${formatTokens(totalOut)} out${totalCost > 0 ? ` · $${totalCost.toFixed(4)}` : ""}`,
-    );
-  }
   log.dim(`Step outputs: ${nodePath.relative(root, outDir)}/`);
 }

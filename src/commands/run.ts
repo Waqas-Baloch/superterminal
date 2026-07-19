@@ -33,7 +33,7 @@ import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
 import { loadConfig, type GlintConfig } from "../util/config";
 import { resolveAuth, type Auth } from "../util/globalConfig";
-import { estimateTokens, formatTokens } from "../util/tokens";
+import { estimateTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { printSelection, printBand, printSemanticSummary } from "./shared";
@@ -775,10 +775,6 @@ async function runViaApi(
     log.info(summary);
   }
   log.info("");
-  const u = runner.usage;
-  log.dim(
-    `Tokens: ${formatTokens(u.input)} in + ${formatTokens(u.cacheRead)} cached / ${formatTokens(u.output)} out${costNote(model, u)}`,
-  );
   log.dim("Undo anytime with `glint revert`.");
 
   if (validationFailed) process.exitCode = 1;
@@ -884,15 +880,6 @@ async function runViaAgentCli(
   log.info("");
   log.info(`${changes.length} file(s) changed, ${pc.green(`+${totalAdded}`)} ${pc.red(`−${totalRemoved}`)}`);
   log.info("");
-  if (usage) {
-    // Real numbers, straight from the agent — accurate on a subscription too.
-    const cost = usage.costUsd != null ? ` · $${usage.costUsd.toFixed(4)}` : "";
-    log.dim(
-      `Tokens (actual, reported by ${agent.title}): ${formatTokens(usage.inputTokens)} in / ${formatTokens(usage.outputTokens)} out${cost}`,
-    );
-  } else {
-    log.dim(`Billing: ${agent.billingNote}.`);
-  }
   log.dim("Undo anytime with `glint revert`.");
 
   if (validationFailed) process.exitCode = 1;
@@ -986,20 +973,6 @@ function printFileDiff(rel: string, created: boolean, added: number, removed: nu
     `${created ? pc.green("A") : pc.yellow("M")} ${pc.bold(rel)}  ${pc.green(`+${added}`)} ${pc.red(`−${removed}`)}`,
   );
   if (rendered) log.info(rendered);
-}
-
-const PRICES: [RegExp, [number, number]][] = [
-  [/fable-5|mythos/, [10, 50]],
-  [/opus/, [5, 25]],
-  [/sonnet/, [3, 15]],
-  [/haiku/, [1, 5]],
-];
-
-function costNote(model: string, u: RunnerUsage): string {
-  const price = PRICES.find(([re]) => re.test(model))?.[1];
-  if (!price) return "";
-  const usd = (u.input * price[0] + u.cacheRead * price[0] * 0.1 + u.output * price[1]) / 1e6;
-  return `  (~$${usd.toFixed(2)})`;
 }
 
 function hintAuth(err: unknown): void {

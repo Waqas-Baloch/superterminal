@@ -11,7 +11,6 @@ import { AGENT_CLIS, runAgent, pathWithLocalBin, type AgentCliDef, type AgentUsa
 import { runValidators } from "../validate/validator";
 import { loadConfig, type GlintConfig } from "../util/config";
 import { renderFileDiff } from "../report/diff";
-import { formatTokens } from "../util/tokens";
 import { spin } from "../report/spinner";
 import { log } from "../util/logger";
 
@@ -108,11 +107,8 @@ function printComparison(results: AgentResult[]): void {
         : r.validationOk
           ? pc.green("checks passed")
           : pc.dim("no checks");
-    const tok = r.usage
-      ? `${formatTokens(r.usage.inputTokens)} in/${formatTokens(r.usage.outputTokens)} out${r.usage.costUsd != null ? ` · $${r.usage.costUsd.toFixed(4)}` : ""}`
-      : "—";
     log.info(
-      `  ${pc.bold(r.agent.title.padEnd(16))} ${String(r.files.length).padStart(2)} file(s)  ${pc.green(`+${r.added}`)}/${pc.red(`−${r.removed}`)}  ${status}  ${pc.dim(tok)}`,
+      `  ${pc.bold(r.agent.title.padEnd(16))} ${String(r.files.length).padStart(2)} file(s)  ${pc.green(`+${r.added}`)}/${pc.red(`−${r.removed}`)}  ${status}`,
     );
     if (r.error) log.dim(`      ${r.error}`);
   }
