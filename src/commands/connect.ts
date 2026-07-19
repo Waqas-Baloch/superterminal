@@ -5,7 +5,7 @@ import { log } from "../util/logger";
 import { track, firstRunNotice } from "../util/telemetry";
 
 export async function connectCommand(): Promise<void> {
-  log.info(pc.bold("Connect Glint to your AI — one-time setup."));
+  log.info(pc.bold("Connect Super Terminal to your AI — one-time setup."));
   // Setup is the natural place for the notice — before anything is recorded.
   const notice = await firstRunNotice();
   if (notice) for (const line of notice.split("\n")) log.dim(line);

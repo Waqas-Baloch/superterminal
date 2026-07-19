@@ -8,5 +8,5 @@ export async function forgetCommand(): Promise<void> {
     log.info("No remembered choices to forget.");
     return;
   }
-  log.success(`Forgot ${n} remembered choice${n === 1 ? "" : "s"}. Glint will ask again next time.`);
+  log.success(`Forgot ${n} remembered choice${n === 1 ? "" : "s"}. Super Terminal will ask again next time.`);
 }

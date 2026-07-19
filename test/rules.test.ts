@@ -109,7 +109,7 @@ describe("glint init — drafts a starter rules file", () => {
       const written = await fs.readFile(path.join(dir, ".glint", "rules.md"), "utf8");
       expect(written).toContain("dist/"); // detected generated dir
       expect(written).toContain("npm test"); // detected test script
-      expect(written).toContain("# Glint project rules");
+      expect(written).toContain("# Super Terminal project rules");
 
       // Second run must not overwrite the user's edits.
       await fs.writeFile(path.join(dir, ".glint", "rules.md"), "MY EDITED RULES");

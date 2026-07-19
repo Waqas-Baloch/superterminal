@@ -686,7 +686,7 @@ function printContextSummary(sentTokens: number, repoTokens: number): void {
   const sent = pctNum < 1 ? pctNum.toFixed(1) : String(Math.round(pctNum));
   const skipped = Math.max(0, 100 - Math.round(pctNum));
   log.info("");
-  log.info(darkGreen(`Context: Glint sent ~${sent}% of the repo — only what this task needs.`));
+  log.info(darkGreen(`Context: Super Terminal sent ~${sent}% of the repo — only what this task needs.`));
   if (skipped > 0) log.dim(`  The other ~${skipped}% wasn't sent.`);
 }
 

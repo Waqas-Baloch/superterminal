@@ -26,7 +26,7 @@ export async function telemetryCommand(action?: string): Promise<void> {
 
   const s = await status();
   if (!s.collecting) {
-    log.info("Usage counting is not configured in this build — Glint is sending nothing.");
+    log.info("Usage counting is not configured in this build — Super Terminal is sending nothing.");
     return;
   }
   log.info(s.enabled ? pc.green("Usage counting: on") : pc.dim("Usage counting: off"));

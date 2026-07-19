@@ -52,7 +52,7 @@ export async function planCommand(task: string, opts: PlanOptions): Promise<void
   const repoTokens = estimateTokens(index.files.reduce((sum, f) => sum + f.size, 0));
 
   log.info("");
-  log.info(darkGreen(`Dry run — Glint would send ~${percent(manifestTokens, repoTokens)} of the repo, only what this task needs.`));
+  log.info(darkGreen(`Dry run — Super Terminal would send ~${percent(manifestTokens, repoTokens)} of the repo, only what this task needs.`));
 
   if (opts.out) {
     const outPath = nodePath.resolve(root, opts.out);

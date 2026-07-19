@@ -10,26 +10,83 @@ const on = pc.isColorSupported;
 const lime = (s: string) => (on ? `${LIME}${s}${RESET}` : s);
 const limeBold = (s: string) => (on ? `\x1b[1m${LIME}${s}${RESET}` : s);
 
-// "glint" pixel wordmark — the `g` matches the Glint SVG logo's block pattern.
-const GLYPHS: Record<string, string[]> = {
-  g: [".###", "#..#", ".###", "...#", "####"],
-  l: ["#.", "#.", "#.", "#.", "##"],
-  i: ["#.", "..", "#.", "#.", "#."],
-  n: ["....", "###.", "#..#", "#..#", "#..#"],
-  t: [".#.", "###", ".#.", ".#.", ".##"],
-};
-const PIXEL = "█";
-const ROWS = 5;
+// The Super Terminal mark, drawn from the same geometry as
+// assets/SuperTerminalIcon.svg: a solid #0040FF square with one slanted
+// near-white bar across the lower third.
+//
+// Rendered with upper-half blocks (▀), so each character cell carries two
+// stacked pixels — foreground paints the top half, background the bottom.
+// That doubles vertical resolution and makes each pixel square, since a cell
+// is about twice as tall as it is wide.
+const BLUE: RGB = [0, 64, 255]; // #0040FF
+const PAPER: RGB = [243, 249, 255]; // #F3F9FF
+const VIEWBOX = 151;
 
-function wordmarkRows(word: string): string[] {
-  const glyphs = [...word].map((c) => GLYPHS[c]).filter(Boolean);
-  const rows: string[] = [];
-  for (let r = 0; r < ROWS; r++) {
-    rows.push(
-      glyphs.map((g) => [...g[r]].map((px) => (px === "#" ? PIXEL + PIXEL : "  ")).join("")).join("  "),
-    );
+// Parallelogram vertices, straight from the SVG path. Top and bottom edges are
+// horizontal, so "inside" is a simple span test per scanline.
+const BAR = { top: 99.5227, bottom: 128.693, topLeft: 41.1818, topRight: 126.977, bottomLeft: 24.0227 };
+const SLANT = BAR.bottomLeft - BAR.topLeft; // how far the bar leans as it descends
+
+type RGB = [number, number, number];
+
+/** Is this point inside the slanted bar? */
+function inBar(x: number, y: number): boolean {
+  if (y < BAR.top || y > BAR.bottom) return false;
+  const t = (y - BAR.top) / (BAR.bottom - BAR.top);
+  return x >= BAR.topLeft + SLANT * t && x <= BAR.topRight + SLANT * t;
+}
+
+/**
+ * Colour of one pixel, supersampled 4×4 so the slanted edges are shaded rather
+ * than jagged — a hard threshold turns a 17° slant into a visible staircase at
+ * this size.
+ */
+function pixelColor(px: number, py: number, size: number): RGB {
+  const step = VIEWBOX / size;
+  let hits = 0;
+  for (let sy = 0; sy < 4; sy++) {
+    for (let sx = 0; sx < 4; sx++) {
+      const x = (px + (sx + 0.5) / 4) * step;
+      const y = (py + (sy + 0.5) / 4) * step;
+      if (inBar(x, y)) hits++;
+    }
   }
-  return rows;
+  const k = hits / 16;
+  return [
+    Math.round(BLUE[0] + (PAPER[0] - BLUE[0]) * k),
+    Math.round(BLUE[1] + (PAPER[1] - BLUE[1]) * k),
+    Math.round(BLUE[2] + (PAPER[2] - BLUE[2]) * k),
+  ];
+}
+
+/** The icon as terminal rows. `rows` characters tall, `rows * 2` wide (square). */
+function iconRows(rows: number): string[] {
+  const size = rows * 2; // pixels per side
+  if (!on) {
+    // No colour: shade the square and fill the bar solid, so the mark still
+    // reads as a logo rather than as debug output.
+    const out: string[] = [];
+    for (let r = 0; r < rows; r++) {
+      let line = "";
+      for (let x = 0; x < size; x++) {
+        const step = VIEWBOX / size;
+        line += inBar((x + 0.5) * step, (r * 2 + 1) * step) ? "█" : "░";
+      }
+      out.push(line);
+    }
+    return out;
+  }
+  const out: string[] = [];
+  for (let r = 0; r < rows; r++) {
+    let line = "";
+    for (let x = 0; x < size; x++) {
+      const [tr, tg, tb] = pixelColor(x, r * 2, size);
+      const [br, bg, bb] = pixelColor(x, r * 2 + 1, size);
+      line += `\x1b[38;2;${tr};${tg};${tb}m\x1b[48;2;${br};${bg};${bb}m▀`;
+    }
+    out.push(line + RESET);
+  }
+  return out;
 }
 
 function vlen(s: string): number {
@@ -117,33 +174,43 @@ async function connectionInfo(): Promise<{ connected: boolean; label: string }> 
   return { connected: true, label };
 }
 
+const NAME = "Super Terminal";
 const DESCRIPTION =
-  "Glint sends your AI coding agent only the code each task needs — a compact, task-specific manifest instead of the whole repo. Fewer tokens, sharper edits, every change reviewed and reversible.";
+  "Super Terminal is the control layer for AI coding agents. Your rules, context, and skills apply to Claude Code, Cursor, and Codex alike — and several agents can be chained into one workflow. Every change is reviewed and reversible.";
 
 /**
- * Responsive welcome box (~80% of terminal width): pixel wordmark + Welcome +
+ * Responsive welcome box (~80% of terminal width): the mark, name, and
  * connection on the left, a divider, description + getting-started on the
  * right. Falls back to a stacked layout when the terminal is too narrow.
  */
 export async function renderHeader(version: string, mode: "welcome" | "session" = "welcome"): Promise<string> {
   const conn = await connectionInfo();
   const name = await userName();
-  const art = wordmarkRows("glint");
-  const artW = art[0].length;
+  const art = iconRows(8);
+  // Width must come from the VISIBLE length — every icon row carries two ANSI
+  // colour codes per cell, so .length is many times the rendered width.
+  const artW = vlen(art[0]);
 
   const cols = process.stdout.columns ?? 80;
   const boxWidth = Math.round(cols * 0.8);
-  const leftW = artW;
-  const rightW = boxWidth - leftW - 7; // "│ " + left + " │ " + right + " │"
-
   const dot = conn.connected ? lime("●") : pc.dim("○");
-  const status = conn.connected ? pc.dim(`connected · ${conn.label}`) : pc.dim("not connected");
+  const statusText = conn.connected ? `connected · ${conn.label}` : "not connected";
+  const status = pc.dim(statusText);
+
+  // Size the column to what goes in it — sizing to the icon alone truncated the
+  // agent name to "connected · C…" — but never let it starve the right column,
+  // which is what actually tells a new user how to start.
+  const wanted = Math.max(artW, NAME.length, `Welcome, ${name}!`.length, statusText.length + 2);
+  const leftW = Math.max(artW, Math.min(wanted, boxWidth - 7 - 34));
+  const rightW = boxWidth - leftW - 7; // "│ " + left + " │ " + right + " │"
 
   if (rightW < 26) return stacked(version, art, dot, conn, name);
 
   const left: string[] = [
     "", // top margin so the logo doesn't hug the border
-    ...art.map((r) => center(lime(r), leftW)),
+    ...art.map((r) => center(r, leftW)),
+    "",
+    center(limeBold(NAME), leftW),
     "",
     center(limeBold(`Welcome, ${name}!`), leftW),
     "",
@@ -173,14 +240,14 @@ export async function renderHeader(version: string, mode: "welcome" | "session" 
         ];
   const right: string[] = [
     "", // align with the left column's top margin
-    pc.bold("What is Glint?"),
+    pc.bold(`What is ${NAME}?`),
     ...wrap(DESCRIPTION, rightW).map((l) => pc.dim(l)),
     "",
     ...commands,
   ];
 
   const rows = Math.max(left.length, right.length);
-  const title = ` glint · v${version} `;
+  const title = ` ${NAME} · v${version} `;
   const out: string[] = [];
   out.push(lime("╭─" + title + "─".repeat(Math.max(0, boxWidth - 3 - title.length)) + "╮"));
   for (let i = 0; i < rows; i++) {
@@ -197,13 +264,14 @@ function stacked(
   conn: { connected: boolean; label: string },
   name: string,
 ): string {
-  const w = art[0].length;
+  const w = Math.max(vlen(art[0]), NAME.length);
   const lines = [""];
-  for (const row of art) lines.push("  " + lime(row));
+  for (const row of art) lines.push("  " + row);
   lines.push("");
+  lines.push("  " + center(limeBold(NAME), w));
   lines.push("  " + center(limeBold(`Welcome, ${name}!`), w));
   lines.push("");
-  lines.push("  " + pc.dim(`precision context for AI coding agents · v${version}`));
+  lines.push("  " + pc.dim(`one control layer for every AI coding agent · v${version}`));
   lines.push(
     "  " + dot + " " + pc.dim(conn.connected ? `connected · ${conn.label}` : "not connected — run `glint connect`"),
   );

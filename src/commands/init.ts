@@ -9,7 +9,7 @@ import { log } from "../util/logger";
 const CANDIDATE_GENERATED = ["dist", "build", "generated", ".next", "out", "coverage", "vendor"];
 
 /**
- * `glint init` — make the neutral layer effortless. Glint already reads any
+ * `glint init` — make the neutral layer effortless. Super Terminal already reads any
  * existing agent instruction files; this just drafts a starter .glint/rules.md
  * from what it detects, so a team gets useful, editable rules without staring
  * at a blank file. Nothing here is required — it's a convenience.
@@ -21,7 +21,7 @@ export async function initCommand(): Promise<void> {
   // Rule files Glint already applies across every agent.
   const existing = (await loadRules(root)).sources.filter((s) => s !== ".glint/rules.md");
   if (existing.length > 0) {
-    log.info(`Glint already reads ${pc.bold(existing.join(", "))} — those rules now apply to every agent.`);
+    log.info(`Super Terminal already reads ${pc.bold(existing.join(", "))} — those rules now apply to every agent.`);
     log.info("");
   }
 
@@ -37,8 +37,8 @@ export async function initCommand(): Promise<void> {
   for (const d of CANDIDATE_GENERATED) if (await exists(nodePath.join(root, d))) generated.push(`${d}/`);
 
   const draft = [
-    "# Glint project rules",
-    "Plain-English rules Glint applies to every AI agent (Claude Code, Cursor, Codex) in this repo.",
+    "# Super Terminal project rules",
+    "Plain-English rules Super Terminal applies to every AI agent (Claude Code, Cursor, Codex) in this repo.",
     "Edit freely — anything here is enforced across all of them.",
     "",
     "## Guardrails",
@@ -58,7 +58,7 @@ export async function initCommand(): Promise<void> {
   await fs.mkdir(nodePath.dirname(rulesPath), { recursive: true });
   await fs.writeFile(rulesPath, draft);
   log.success(`Created ${pc.bold(".glint/rules.md")} — a starter draft from what Glint detected in your project.`);
-  log.dim("Commit it to share with your team. Glint applies it to whichever agent runs — and verifies it too.");
+  log.dim("Commit it to share with your team. Super Terminal applies it to whichever agent runs — and verifies it too.");
 }
 
 async function exists(p: string): Promise<boolean> {

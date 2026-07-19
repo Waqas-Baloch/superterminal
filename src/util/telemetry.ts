@@ -195,7 +195,7 @@ export async function firstRunNotice(): Promise<string | null> {
   const s = await readState();
   if (s.notified) return null;
   await writeState({ ...s, notified: true });
-  return "Glint counts anonymous usage (which agent, whether a task finished) to see what's working.\nNever your prompts, filenames, or code. Turn it off: glint telemetry off";
+  return "Super Terminal counts anonymous usage (which agent, whether a task finished) to see what's working.\nNever your prompts, filenames, or code. Turn it off: glint telemetry off";
 }
 
 /**

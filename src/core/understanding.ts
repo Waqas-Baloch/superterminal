@@ -173,7 +173,7 @@ export async function readSelectionContents(selection: Selection, root: string):
  * report any that no longer exist. Re-parses the files after the agent ran and
  * matches by landmark + text (not line), so it survives the agent shifting
  * lines or reformatting — but catches it deleting/altering a copy it was told
- * to leave alone. This is what turns "the agent obeyed" into "Glint verified".
+ * to leave alone. This is what turns "the agent obeyed" into "Super Terminal verified".
  */
 export async function findMissingKeeps(root: string, keep: Instance[]): Promise<Instance[]> {
   if (keep.length === 0) return [];
