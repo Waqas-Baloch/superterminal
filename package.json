@@ -1,7 +1,7 @@
 {
   "name": "super-t",
-  "version": "1.1.0",
-  "description": "Super Terminal \u2014 one control layer for every AI coding agent. Write your rules once and they apply to Claude Code, Cursor, and ChatGPT Codex alike, and chain agents into a single workflow.",
+  "version": "1.2.0",
+  "description": "Super Terminal — one control layer for every AI coding agent. Write your rules once and they apply to Claude Code, Cursor, and ChatGPT Codex alike, and chain agents into a single workflow.",
   "type": "module",
   "license": "MIT",
   "repository": {
