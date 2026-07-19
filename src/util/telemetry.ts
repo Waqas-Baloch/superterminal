@@ -44,7 +44,7 @@ const FIELDS: Record<string, "number" | "boolean" | "version" | readonly string[
   command: ["run", "flow", "compare", "plan"],
   outcome: ["applied", "reverted", "cancelled", "failed"],
   band: ["green", "yellow", "orange", "red"],
-  code: ["no_auth", "agent_missing", "agent_error", "parse_failed", "timeout", "no_steps"],
+  code: ["no_auth", "agent_missing", "agent_error", "parse_failed", "timeout", "no_steps", "blocked"],
   os: ["darwin", "linux", "win32", "freebsd", "openbsd", "aix", "sunos"],
   steps: "number",
   agents: "number",

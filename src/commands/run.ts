@@ -8,13 +8,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { indexRepo, type RepoIndex } from "../core/indexer";
 import { buildGraph } from "../core/mapper";
 import { selectFiles, fullSelection } from "../core/selector";
-import { assessTask, runQuestions, compileTask, type EditScope } from "../core/clarify";
+import { type EditScope } from "../core/clarify";
+import { safetyGate } from "../core/gate";
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
-import { isModifyAction, targetDescriptors, findMissingTargets } from "../core/preflight";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -37,7 +37,7 @@ import { estimateTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { track, firstRunNotice } from "../util/telemetry";
-import { printSelection, printBand, printSemanticSummary } from "./shared";
+import { printSelection, printSemanticSummary } from "./shared";
 import { stateDir } from "../util/paths";
 
 const MAX_REPAIRS = 2;
@@ -373,74 +373,17 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       }
     }
 
-    // 3.5: understand & clarify before spending anything. Ranking says what's
-    // relevant; this layer decides what's *safely resolvable* and sorts the
-    // task into one of four bands (green/yellow/orange/red).
+    // 3.5: understand & clarify before spending anything. Shared with `flow`
+    // so both commands get identical protection.
     const interactive = Boolean(process.stdin.isTTY) && !opts.yes && opts.ask !== false;
-    const assessment = await assessTask(task, selection, root);
-
-    // Preflight: a modify/destructive edit needs an existing target. If every
-    // specific thing the task names is absent from the whole repo, don't spend
-    // tokens letting the agent rediscover that — this is the token USP.
-    if (isModifyAction(assessment.frame.action)) {
-      const named = targetDescriptors(task);
-      const missing = named.length > 0 ? await findMissingTargets(root, index.files, named) : [];
-      if (missing && named.length > 0 && missing.length === named.length) {
-        log.info("");
-        log.warn(`Couldn't find ${missing.map((m) => `“${m}”`).join(" or ")} anywhere in the codebase.`);
-        log.dim(
-          `A ${assessment.frame.action} needs an existing target — sending this would just spend tokens for the agent to find the same. Check the name, or that you're in the right project.`,
-        );
-        if (!interactive) {
-          process.exitCode = 1;
-          return;
-        }
-        const ans = await prompts({ type: "confirm", name: "send", message: "Send to the agent anyway?", initial: false });
-        if (!ans.send) {
-          log.info("Cancelled — no tokens spent.");
-          return;
-        }
-      }
-    }
-
-    printBand(assessment.band, assessment.reason);
-
-    // Red: a destructive edit collides with identical targets in several
-    // places. Never auto-apply it blind — if we can't ask (no TTY / --yes),
-    // stop with the evidence instead of nuking every occurrence.
-    if (assessment.band === "red" && !interactive) {
-      log.warn(`Blocked: ${assessment.reason}.`);
-      log.dim("Name the exact target or section in your task, or re-run interactively (without --yes) to choose.");
+    const gate = await safetyGate({ task, root, index, graph, selection, budget, seeds, interactive });
+    if (!gate.proceed) {
       process.exitCode = 1;
       return;
     }
-
-    // Orange/Red (interactive): ask the focused question(s). Answers change the
-    // targeting, so re-select. Yellow: no question — just tell the agent to
-    // continue the existing design (doesn't change which files we pick).
-    if (assessment.recallNote) log.dim(`  ↳ ${assessment.recallNote}`);
-    const asked =
-      interactive && assessment.questions.length > 0
-        ? await runQuestions(assessment.questions)
-        : { refinements: [], scope: null, cancelled: false };
-    if (asked.cancelled) {
-      log.info("");
-      log.info("Cancelled — nothing was changed.");
-      return;
-    }
-    // A fresh answer is remembered so the same question isn't asked next time.
-    if (asked.scope) await rememberChoice(root, scopeToChoice(asked.scope));
-
-    // Memory-applied refinements + this run's answers + any Yellow style note.
-    const answered = [...assessment.autoRefinements, ...asked.refinements];
-    editScope = asked.scope ?? assessment.autoScope; // verify whichever scope applies
-    const refinements = assessment.styleNote ? [...answered, assessment.styleNote] : answered;
-    if (refinements.length > 0) finalTask = compileTask(task, refinements);
-    if (answered.length > 0) {
-      const reSpin = spin("Re-targeting with clarified task…").start();
-      selection = await selectFiles({ task: finalTask, root, index, graph, budget, seeds });
-      reSpin.stop();
-    }
+    finalTask = gate.finalTask;
+    selection = gate.selection;
+    editScope = gate.editScope;
 
     printSelection(selection);
     manifest = await generateManifest({ root, task: finalTask, selection, focus: opts.focus, sessionNote });
@@ -541,11 +484,6 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
 }
 
 /** Persist a duplicate-disambiguation answer, keyed by landmark so it survives edits. */
-function scopeToChoice(scope: EditScope): { phrase: string; change: string[]; keep: string[] } {
-  const idOf = (i: Instance) => i.landmark || i.value;
-  return { phrase: scope.phrase, change: scope.change.map(idOf), keep: scope.keep.map(idOf) };
-}
-
 /**
  * The agent edited past what the user authorized. Report it, then offer to
  * surgically restore just the out-of-scope regions — keeping the rest of the

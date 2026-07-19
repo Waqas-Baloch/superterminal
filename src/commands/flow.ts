@@ -6,6 +6,9 @@ import { parseFlow, describeStep, type FlowStep } from "../core/flow";
 import { indexRepo } from "../core/indexer";
 import { buildGraph } from "../core/mapper";
 import { selectFiles } from "../core/selector";
+import { safetyGate } from "../core/gate";
+import { findMissingKeeps } from "../core/understanding";
+import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { generateManifest } from "../core/manifest";
 import { loadSkills } from "../core/skills";
 import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef } from "../claude/agentCli";
@@ -17,7 +20,7 @@ import { resolveAuth } from "../util/globalConfig";
 import { pixelWave } from "../report/spinner";
 import { log } from "../util/logger";
 import { track } from "../util/telemetry";
-import { stateDir } from "../util/paths";
+import { stateDir, statePath } from "../util/paths";
 
 // `super-t flow` — one command, several steps, each routed to the agent you named,
 // with outputs passed forward. The neutral layer's payoff: no vendor will run a
@@ -130,6 +133,44 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   const before = await snapshot(root, index);
   const skills = await loadSkills(root);
 
+  // One backup for the entire flow, captured incrementally as steps touch
+  // files. Without this `revert` had nothing to restore after a flow — the
+  // command most likely to need undoing was the one that couldn't be undone.
+  const backupDir = nodePath.join(stateDir(root), "backup", runId);
+  const backedUp = new Set<string>();
+  const created = new Set<string>();
+  await fs.mkdir(nodePath.join(backupDir, "files"), { recursive: true });
+  await fs.writeFile(
+    nodePath.join(backupDir, "meta.json"),
+    JSON.stringify({ kind: "flow", steps: resolved.length, startedAt: new Date().toISOString() }),
+  );
+
+  /** Record pre-flow content for anything this step changed, once per file. */
+  const captureOriginals = async (): Promise<void> => {
+    for (const change of await diffAgainst(root, config, before)) {
+      if (backedUp.has(change.path)) continue;
+      backedUp.add(change.path);
+      if (change.created) {
+        created.add(change.path);
+        continue; // nothing to restore — revert deletes it
+      }
+      const dest = nodePath.join(backupDir, "files", change.path);
+      await fs.mkdir(nodePath.dirname(dest), { recursive: true });
+      await fs.writeFile(dest, change.before);
+    }
+    await fs.writeFile(nodePath.join(backupDir, "created.json"), JSON.stringify([...created]));
+  };
+
+  const recordProgress = async (completed: number): Promise<void> => {
+    await fs
+      .writeFile(
+        nodePath.join(backupDir, "meta.json"),
+        JSON.stringify({ kind: "flow", steps: resolved.length, completed }),
+      )
+      .catch(() => {});
+  };
+
+  const protectedPaths = extractProtectedPaths((await loadRules(root)).text);
   let carried = ""; // the previous step's output, handed to the next
 
   for (const [i, { step, agent }] of resolved.entries()) {
@@ -137,8 +178,30 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     log.info(pc.dim(`── step ${i + 1}/${resolved.length} · ${agent.title}${step.skill ? ` · ${step.skill}` : ""} ──`));
     log.info(step.task);
 
-    const selection = await selectFiles({ task: step.task, root, index, graph, budget, seeds: [] });
-    const manifest = await generateManifest({ root, task: step.task, selection });
+    // The same gate `run` uses — preflight, band classification, and
+    // clarification — applied per step and evaluated NOW, so it sees the repo
+    // as earlier steps left it rather than as it was when the flow started.
+    const picked = await selectFiles({ task: step.task, root, index, graph, budget, seeds: [] });
+    const gate = await safetyGate({
+      task: step.task,
+      root,
+      index,
+      graph,
+      selection: picked,
+      budget,
+      seeds: [],
+      interactive,
+    });
+    if (!gate.proceed) {
+      log.warn(`Flow stopped at step ${i + 1} — that step wasn't safe to run unattended.`);
+      if (i > 0) log.dim(`Steps 1–${i} already ran. Undo the whole flow with \`super-t revert\`.`);
+      await recordProgress(i); // steps before this one did run
+      await track("error", root, { code: "blocked", command: "flow", steps: i });
+      process.exitCode = 1;
+      return;
+    }
+    const selection = gate.selection;
+    const manifest = await generateManifest({ root, task: gate.finalTask, selection });
 
     // A named skill is applied even if the matcher wouldn't have picked it —
     // you asked for it explicitly.
@@ -154,7 +217,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
       manifest,
       named ? `## Skill: ${named.name}\n${named.body}` : "",
       carried ? `## Result of the previous step\n${carried}` : "",
-      `Do this step now: ${step.task}`,
+      `Do this step now: ${gate.finalTask}`,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -168,9 +231,31 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     } catch (err) {
       wave.stop();
       log.error(err instanceof Error ? err.message : String(err));
-      log.dim(`Flow stopped at step ${i + 1}. Earlier steps' changes are kept — \`super-t revert\` is not aware of flows yet.`);
+      await captureOriginals(); // a failed step may still have written files
+      await recordProgress(i);
+      log.dim(`Flow stopped at step ${i + 1}. Undo everything it changed with \`super-t revert\`.`);
       process.exitCode = 1;
       return;
+    }
+
+    await captureOriginals(); // before any check that might restore files
+
+    // Verify what the agent actually did, same as a single run: did it edit an
+    // occurrence you said to keep, and did it touch a protected path.
+    if (gate.editScope) {
+      const missing = await findMissingKeeps(root, gate.editScope.keep);
+      if (missing.length > 0) {
+        log.warn(`  Step ${i + 1} changed ${missing.length} occurrence(s) you asked to keep.`);
+        log.dim("  `super-t revert` undoes the whole flow.");
+      }
+    }
+    if (protectedPaths.length > 0) {
+      const changed = await diffAgainst(root, config, before);
+      const violations = changed.map((c) => c.path).filter((f) => protectedMatch(f, protectedPaths));
+      if (violations.length > 0) {
+        log.warn(`  Step ${i + 1} touched protected path(s): ${violations.join(", ")}`);
+        log.dim("  `super-t revert` undoes the whole flow.");
+      }
     }
 
     carried = text;
@@ -180,6 +265,8 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     );
     log.success(`step ${i + 1} done`);
   }
+
+  await recordProgress(resolved.length);
 
   // What the whole flow changed, in one diff.
   const changes = await diffAgainst(root, config, before);
