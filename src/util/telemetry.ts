@@ -89,6 +89,7 @@ interface Ids {
   installId: string;
   enabled: boolean;
   notified: boolean;
+  installSent?: boolean;
   repos: Record<string, string>; // sha256(abs path) → random id; the hash never leaves
 }
 
@@ -158,6 +159,24 @@ async function repoId(root: string): Promise<string> {
     await writeState(s);
   }
   return s.repos[key];
+}
+
+/**
+ * Fire `installed` exactly once per machine. This is the denominator of the
+ * activation funnel — without it you can measure how many people connected
+ * but not what share of arrivals that represents, which is the number that
+ * says whether setup is the problem.
+ */
+export async function trackInstallOnce(): Promise<void> {
+  try {
+    if (!projectKey() || !(await isEnabled())) return;
+    const s = await readState();
+    if (s.installSent) return;
+    await writeState({ ...s, installSent: true });
+    await track("installed", null);
+  } catch {
+    /* never block startup */
+  }
 }
 
 /**

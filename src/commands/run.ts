@@ -74,6 +74,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   if (!auth) {
     log.error("Not connected to an AI provider.");
     log.info("Run `glint connect` for one-time setup — API key, browser login, Claude Code, Cursor, or ChatGPT.");
+    await track("error", null, { code: "no_auth" }); // the classic drop-off point
     process.exitCode = 1;
     return;
   }

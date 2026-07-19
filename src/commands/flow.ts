@@ -94,6 +94,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     if (!stand) {
       log.error(`${wanted.title} isn't installed (needed for "${step.task}").`);
       log.dim(`  ${wanted.installHint}`);
+      await track("error", root, { code: "agent_missing", agent: wanted.id });
       process.exitCode = 1;
       return;
     }

@@ -8,6 +8,7 @@ import { initCommand } from "./commands/init";
 import { compareCommand } from "./commands/compare";
 import { flowCommand } from "./commands/flow";
 import { telemetryCommand } from "./commands/telemetry";
+import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
@@ -100,6 +101,9 @@ program
   .command("forget")
   .description("clear the choices Glint has learned for this repo (.glint/intent.json)")
   .action(forgetCommand);
+
+// Counted once per machine, whichever command brought them here.
+void trackInstallOnce();
 
 // Bare `glint` (no command) shows the welcome box (wordmark + status + commands).
 if (process.argv.length <= 2) {
