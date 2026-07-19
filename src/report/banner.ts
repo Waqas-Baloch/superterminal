@@ -10,37 +10,69 @@ const on = pc.isColorSupported;
 const lime = (s: string) => (on ? `${LIME}${s}${RESET}` : s);
 const limeBold = (s: string) => (on ? `\x1b[1m${LIME}${s}${RESET}` : s);
 
-// The Super Terminal mark, built from its pixel construction rather than
-// traced from the SVG outline.
+// The Super Terminal icon: a light tile with one blue stepped shape near the
+// bottom.
 //
-// The form: one small box is a solid cell; four of them (2x2) make a large
-// square; LARGE_SQUARES of those in a row make a bar. Two bars stack with no
-// gap, and the top bar begins at the second large square of the bottom one —
-// which is what gives the mark its lean.
+// The shape is built from its pixel construction — four small cells make a
+// large square, five large squares make a bar, and two bars stack with the top
+// one starting at the second large square of the bottom, which creates the
+// lean. The two bars touch, forming a single shape.
 //
-// Each small cell is drawn as two "█" on one text row: a terminal cell is
-// about twice as tall as it is wide, so two of them side by side read square.
-// Tracing the SVG's diagonal instead meant antialiasing a 17-degree edge
-// across very few pixels, which rendered as a smudge at any size that fit the
-// header. Blocks are what the mark is actually made of, so they stay crisp.
+// Drawn with upper-half blocks (▀) carrying BOTH a foreground and a background
+// colour, so every character cell is filled edge to edge. Using full blocks (█)
+// on consecutive rows instead leaves visible horizontal seams between rows,
+// because the glyph doesn't cover the cell's full line height in most terminal
+// fonts — which made one continuous shape look like separate stripes.
 
+type RGB = [number, number, number];
+const BLUE: RGB = [0, 64, 255]; // #0040FF — the bars
+const PAPER: RGB = [243, 249, 255]; // #F3F9FF — the tile
+
+const BOX = 18; // the icon is BOX x BOX square cells
 const LARGE_SQUARES = 5; // large squares per bar
 const CELLS_PER_SQUARE = 2; // a large square is 2x2 small cells
-const BAR_CELLS = LARGE_SQUARES * CELLS_PER_SQUARE; // small cells per bar
-const OFFSET_CELLS = CELLS_PER_SQUARE; // top bar starts one large square in
-const MARK_ROWS = 4; // two bars, each two small cells tall
+const BAR_W = LARGE_SQUARES * CELLS_PER_SQUARE; // 10 cells
+const OFFSET = CELLS_PER_SQUARE; // top bar starts one large square in
+const MARK_W = BAR_W + OFFSET;
+const MARK_H = 4; // two bars, two cells each
+const MARK_X = Math.round((BOX - MARK_W) / 2); // centred horizontally
+const MARK_Y = 11; // sits low in the tile, as in the icon
 
-/** The mark as terminal rows, light on whatever the terminal background is. */
-function iconRows(): string[] {
-  const width = BAR_CELLS + OFFSET_CELLS;
-  const rows: string[] = [];
-  for (let r = 0; r < MARK_ROWS; r++) {
-    const from = r < MARK_ROWS / 2 ? OFFSET_CELLS : 0; // top bar is the offset one
-    let line = "";
-    for (let c = 0; c < width; c++) line += c >= from && c < from + BAR_CELLS ? "██" : "  ";
-    rows.push(on ? `${LIME}${line}${RESET}` : line);
+/** Colour of one square cell of the icon. */
+function cellColor(x: number, y: number): RGB {
+  const mx = x - MARK_X;
+  const my = y - MARK_Y;
+  if (my >= 0 && my < MARK_H && mx >= 0 && mx < MARK_W) {
+    const from = my < MARK_H / 2 ? OFFSET : 0; // upper bar is the offset one
+    if (mx >= from && mx < from + BAR_W) return BLUE;
   }
-  return rows;
+  return PAPER;
+}
+
+const rgb = (c: RGB, layer: 38 | 48): string => `\x1b[${layer};2;${c[0]};${c[1]};${c[2]}m`;
+
+/** The icon as terminal rows: BOX cells wide, BOX/2 rows tall. */
+function iconRows(): string[] {
+  if (!on) {
+    // No colour: draw the shape solid and the tile as light shade, so the
+    // icon still reads without relying on colour at all.
+    const out: string[] = [];
+    for (let r = 0; r < BOX / 2; r++) {
+      let line = "";
+      for (let x = 0; x < BOX; x++) line += cellColor(x, r * 2) === BLUE ? "█" : "░";
+      out.push(line);
+    }
+    return out;
+  }
+  const out: string[] = [];
+  for (let r = 0; r < BOX / 2; r++) {
+    let line = "";
+    for (let x = 0; x < BOX; x++) {
+      line += `${rgb(cellColor(x, r * 2), 38)}${rgb(cellColor(x, r * 2 + 1), 48)}▀`;
+    }
+    out.push(line + RESET);
+  }
+  return out;
 }
 
 function vlen(s: string): number {
