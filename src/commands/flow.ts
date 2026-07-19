@@ -16,6 +16,7 @@ import { loadConfig } from "../util/config";
 import { resolveAuth } from "../util/globalConfig";
 import { pixelWave } from "../report/spinner";
 import { log } from "../util/logger";
+import { track } from "../util/telemetry";
 
 // `glint flow` — one command, several steps, each routed to the agent you named,
 // with outputs passed forward. The neutral layer's payoff: no vendor will run a
@@ -198,5 +199,11 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     log.info(`${changes.length} file(s) changed, ${pc.green(`+${added}`)} ${pc.red(`−${removed}`)}`);
   }
 
+  await track("flow_completed", root, {
+    steps: resolved.length,
+    agents: new Set(resolved.map((r) => r.agent.id)).size,
+    files: changes.length,
+    substituted: resolved.some((r) => r.substituted),
+  });
   log.dim(`Step outputs: ${nodePath.relative(root, outDir)}/`);
 }

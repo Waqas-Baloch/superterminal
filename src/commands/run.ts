@@ -36,6 +36,7 @@ import { resolveAuth, type Auth } from "../util/globalConfig";
 import { estimateTokens } from "../util/tokens";
 import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
+import { track, firstRunNotice } from "../util/telemetry";
 import { printSelection, printBand, printSemanticSummary } from "./shared";
 
 const MAX_REPAIRS = 2;
@@ -101,6 +102,11 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   log.info(await renderHeader(VERSION, "session"));
+  const notice = await firstRunNotice();
+  if (notice) {
+    for (const line of notice.split("\n")) log.dim(`  ${line}`);
+    log.info("");
+  }
   log.dim("  Type a task — / for commands · Esc to exit.");
   log.info("");
 
@@ -523,6 +529,13 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
   }
+
+  await track("task_completed", root, {
+    command: "run",
+    agent: auth.mode === "agent-cli" ? auth.agent : "api",
+    outcome: outcome ? "applied" : "cancelled",
+    files: outcome ? outcome.touched.length : 0,
+  });
 }
 
 /** Persist a duplicate-disambiguation answer, keyed by landmark so it survives edits. */

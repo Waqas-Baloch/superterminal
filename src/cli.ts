@@ -7,6 +7,7 @@ import { forgetCommand } from "./commands/forget";
 import { initCommand } from "./commands/init";
 import { compareCommand } from "./commands/compare";
 import { flowCommand } from "./commands/flow";
+import { telemetryCommand } from "./commands/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
 import { searchCommand } from "./commands/search";
@@ -83,6 +84,12 @@ program
   .option("--budget <tokens>", "manifest token budget")
   .description("run the same task through every connected agent and keep the best result")
   .action(compareCommand);
+
+program
+  .command("telemetry")
+  .argument("[action]", "on | off | status")
+  .description("show or change anonymous usage counting")
+  .action(telemetryCommand);
 
 program
   .command("revert")
