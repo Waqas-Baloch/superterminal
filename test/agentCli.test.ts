@@ -117,6 +117,47 @@ describe("parseAgentEvent — one parser, every agent's JSON shape", () => {
     expect(parseAgentEvent(j({ msg: { type: "agent_message", message: "thinking…" } }))).toEqual({ text: "thinking…" });
   });
 
+  // These are verbatim events from a real `codex exec --json` run. The parser
+  // was written against an assumed schema that didn't match — a file edit
+  // rendered as "→ Editing 0" because item.changes is an array, not an object.
+  it("Codex real schema (item.*/turn.completed): captured from the live CLI", () => {
+    const fileChange = {
+      type: "item.completed",
+      item: {
+        id: "item_2",
+        type: "file_change",
+        changes: [{ path: "/repo/index.html", kind: "update" }],
+        status: "completed",
+      },
+    };
+    expect(parseAgentEvent(j(fileChange))).toMatchObject({ step: "→ Editing /repo/index.html" });
+
+    const twoFiles = {
+      type: "item.started",
+      item: {
+        type: "file_change",
+        changes: [{ path: "a.ts", kind: "update" }, { path: "b.ts", kind: "add" }],
+      },
+    };
+    expect(parseAgentEvent(j(twoFiles))).toMatchObject({ step: "→ Editing a.ts (+1 more)" });
+
+    // Commands come wrapped as `/bin/zsh -lc "…"`; show the real command.
+    const command = {
+      type: "item.started",
+      item: { id: "item_1", type: "command_execution", command: `/bin/zsh -lc "rg -n '<h1' index.html"`, status: "in_progress" },
+    };
+    expect(parseAgentEvent(j(command))).toEqual({ step: "→ Running rg -n '<h1' index.html" });
+
+    const turnDone = {
+      type: "turn.completed",
+      usage: { input_tokens: 39800, cached_input_tokens: 36096, output_tokens: 288, reasoning_output_tokens: 14 },
+    };
+    expect(parseAgentEvent(j(turnDone))).toMatchObject({ usage: { inputTokens: 39800, outputTokens: 288 } });
+
+    const agentMessage = { type: "item.completed", item: { type: "agent_message", text: "Updated index.html." } };
+    expect(parseAgentEvent(j(agentMessage))).toEqual({ text: "Updated index.html." });
+  });
+
   it("unknown JSON returns null (so the run degrades to the wave, never a blank)", () => {
     expect(parseAgentEvent(j({ msg: { type: "some_future_event", detail: 42 } }))).toBeNull();
     expect(parseAgentEvent("not json at all")).toBeNull();

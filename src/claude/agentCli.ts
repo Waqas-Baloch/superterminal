@@ -96,30 +96,54 @@ export function parseAgentEvent(line: string): { step?: string; text?: string; u
     return { usage: u };
   }
 
-  // 2. Codex-style events: unwrap {id, msg:{…}}, read the type.
+  // 2. Codex events. The real schema (captured from `codex exec --json`):
+  //    { type: "item.started"|"item.completed", item: { type, … } } for actions,
+  //    { type: "turn.completed", usage: {…} } for tokens. Older builds wrap the
+  //    payload as { msg: {…} }, so unwrap that too and keep a generic fallback.
   const msg = (o.msg && typeof o.msg === "object" ? o.msg : o) as Record<string, unknown>;
   const item = (msg.item && typeof msg.item === "object" ? msg.item : {}) as Record<string, unknown>;
   const type = String(msg.type ?? o.type ?? "");
+  const itemType = String(item.type ?? "");
 
-  const u = usageFrom(msg) ?? usageFrom((msg.info as Record<string, unknown>)?.total_token_usage) ?? usageFrom(o.usage);
+  const u = usageFrom(o.usage) ?? usageFrom(msg) ?? usageFrom((msg.info as Record<string, unknown>)?.total_token_usage);
   if (u && /token|usage|complete/i.test(type)) return { usage: u };
 
-  const cmd = msg.command ?? item.command;
-  if (cmd && /begin|start|exec|command/i.test(type)) {
-    return { step: `→ Running ${shortTarget(Array.isArray(cmd) ? cmd.join(" ") : String(cmd), false)}` };
+  // A file_change item carries changes as an ARRAY of { path, kind }. Calling
+  // Object.keys on that array yields "0", which is why edits used to render as
+  // "→ Editing 0". Read the paths out of the array.
+  if (itemType === "file_change" || Array.isArray(item.changes)) {
+    const paths = ((item.changes as Array<{ path?: string }>) ?? []).map((c) => c?.path).filter(Boolean) as string[];
+    if (paths.length) {
+      return { step: `→ Editing ${shortTarget(paths[0], true)}${paths.length > 1 ? ` (+${paths.length - 1} more)` : ""}` };
+    }
   }
+
+  const cmd = item.command ?? msg.command;
+  if (cmd && (itemType === "command_execution" || /begin|start|exec|command/i.test(type))) {
+    return { step: `→ Running ${shortTarget(unwrapShell(cmd), false)}` };
+  }
+
+  // agent_message / reasoning text → narration (suppressed live; diff shows code).
+  const t = item.text ?? msg.message ?? msg.text;
+  if (typeof t === "string" && t.trim()) return { text: t };
+
+  // Fallbacks for object-shaped changes and flat file fields (older schemas).
   const changes = (msg.changes ?? item.changes) as Record<string, unknown> | undefined;
-  if (changes && typeof changes === "object") {
+  if (changes && !Array.isArray(changes) && typeof changes === "object") {
     const paths = Object.keys(changes);
     if (paths.length) return { step: `→ Editing ${shortTarget(paths[0], true)}${paths.length > 1 ? ` (+${paths.length - 1} more)` : ""}` };
   }
   const fp = msg.file_path ?? msg.path ?? item.path;
   if (fp && /patch|file|edit|write|apply/i.test(type)) return { step: `→ Editing ${shortTarget(String(fp), true)}` };
 
-  const t = msg.message ?? msg.text ?? item.text;
-  if (typeof t === "string" && t.trim()) return { text: t };
-
   return null;
+}
+
+/** Codex runs shell steps as `/bin/zsh -lc "the real command"`; show the inner command. */
+function unwrapShell(cmd: unknown): string {
+  const s = Array.isArray(cmd) ? cmd.join(" ") : String(cmd);
+  const m = s.match(/\s-lc\s+(["'])([\s\S]+)\1\s*$/);
+  return m ? m[2] : s;
 }
 
 /** Real token/cost usage as reported by the agent CLI itself (no API key needed). */
