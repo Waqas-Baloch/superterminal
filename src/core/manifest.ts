@@ -9,6 +9,8 @@ import { expandTask } from "./terms";
 import { focusContent, type FocusResult } from "./focus";
 import { estimateTokens } from "../util/tokens";
 import type { Selection } from "./selector";
+import { renderTicketSection } from "../trackers/ticketText";
+import type { TrackerTicket } from "../trackers/types";
 
 const LANG: Record<string, string> = {
   ".ts": "ts",
@@ -52,7 +54,7 @@ export async function generateManifest(opts: {
   selection: Selection;
   focus?: boolean; // default true — send task-relevant excerpts for large files
   sessionNote?: string; // follow-up context from the previous task in this session
-  ticketSection?: string; // pre-fenced ticket data (rendered by trackers/ticketText — protocol T2)
+  ticket?: TrackerTicket; // fenced as data by THIS function — callers can't forget the fencing
 }): Promise<string> {
   const { root, task, selection } = opts;
   const focusOn = opts.focus !== false;
@@ -62,9 +64,10 @@ export async function generateManifest(opts: {
   parts.push("# Repo context manifest");
   parts.push(`## Task\n${task}`);
   parts.push(APPLY_GUIDANCE);
-  // Ticket data (already fenced with non-instruction framing) sits right after
-  // the task it specifies.
-  if (opts.ticketSection) parts.push(opts.ticketSection);
+  // Ticket data, fenced with non-instruction framing (protocol T2). Fencing
+  // happens HERE so a call site can never ship the body unfenced — or, as a
+  // silent patch failure once proved, not ship it at all.
+  if (opts.ticket) parts.push(renderTicketSection(opts.ticket));
   // Project context first — what this project *is* — then the rules that
   // constrain the work. Both go to every agent.
   const contextSection = renderContextSection(await loadContext(root));
@@ -125,8 +128,10 @@ export async function generateScaffoldManifest(opts: {
   root: string;
   task: string;
   sessionNote?: string;
+  ticket?: TrackerTicket;
 }): Promise<string> {
   const parts = ["# New project manifest", `## Task\n${opts.task}`];
+  if (opts.ticket) parts.push(renderTicketSection(opts.ticket));
   // Context matters most here — there's no code to infer intent from yet.
   const contextSection = renderContextSection(await loadContext(opts.root));
   if (contextSection) parts.push(contextSection);

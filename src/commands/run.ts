@@ -17,7 +17,7 @@ import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { secondOpinion } from "../core/review";
 import { parseCriteria } from "../core/criteria";
-import { buildTicketTask, renderTicketSection, ticketCriteria } from "../trackers/ticketText";
+import { buildTicketTask, ticketCriteria } from "../trackers/ticketText";
 import type { TrackerTicket } from "../trackers/types";
 import { loadContext } from "../core/rules";
 import { writeRunReport } from "../report/runReport";
@@ -395,7 +395,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       log.info(line);
     }
     log.info("");
-    manifest = await generateScaffoldManifest({ root, task, sessionNote });
+    manifest = await generateScaffoldManifest({ root, task, sessionNote, ticket: ctx.ticket });
   } else {
     spinner.text = "Mapping imports…";
     const graph = await buildGraph(root, index);
@@ -428,7 +428,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     editScope = gate.editScope;
 
     printSelection(selection);
-    manifest = await generateManifest({ root, task: finalTask, selection, focus: opts.focus, sessionNote });
+    manifest = await generateManifest({ root, task: finalTask, selection, focus: opts.focus, sessionNote, ticket: ctx.ticket });
   }
 
   // 4: confirm (with view / edit before sending). No pre-send token box —

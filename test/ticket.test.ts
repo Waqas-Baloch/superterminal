@@ -80,7 +80,7 @@ describe("the manifest carries the fenced ticket", () => {
       root: dir,
       task: buildTicketTask(t),
       selection,
-      ticketSection: renderTicketSection(t),
+      ticket: t,
     });
     expect(manifest).toContain("## Ticket #142");
     expect(manifest).toContain("<<<ticket-data");
