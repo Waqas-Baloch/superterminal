@@ -10,6 +10,8 @@ import { safetyGate } from "../core/gate";
 import { findMissingKeeps } from "../core/understanding";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { secondOpinion } from "../core/review";
+import { parseCriteria } from "../core/criteria";
+import { loadContext } from "../core/rules";
 import { generateManifest } from "../core/manifest";
 import { loadSkills } from "../core/skills";
 import {
@@ -353,13 +355,15 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   }
 
   if (changes.length > 0) {
+    const rulesText = (await loadRules(root)).text;
     await secondOpinion({
       root,
       task: input,
       changedFiles: changes.map((c) => c.path),
-      rulesText: (await loadRules(root)).text,
+      rulesText,
       authorId: resolved.length === 1 ? resolved[0].agent.id : "api", // multi-agent flow: no single author
       config,
+      criteria: parseCriteria([input, (await loadContext(root)).text, rulesText].join("\n")),
     });
   }
 

@@ -36,6 +36,11 @@ const CONTEXT_FILES = [
   "CONTEXT.md",
   "docs/context.md",
   "PROJECT.md",
+  // The PM's intent rides with every task, whichever agent runs it.
+  `${STATE_DIR}/product.md`,
+  "product.md",
+  "PRODUCT.md",
+  "docs/product.md",
 ];
 
 export async function loadContext(root: string): Promise<LoadedRules> {

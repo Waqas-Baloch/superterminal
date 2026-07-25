@@ -16,6 +16,9 @@ import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { secondOpinion } from "../core/review";
+import { parseCriteria } from "../core/criteria";
+import { loadContext } from "../core/rules";
+import { writeRunReport } from "../report/runReport";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -494,16 +497,32 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   }
 
   // Second Opinion: a different vendor reviews the accepted diff against the
-  // rules. Advisory — printed, never auto-reverted.
+  // rules AND the acceptance criteria (from the task, product.md, or context).
+  // Advisory — printed, never auto-reverted.
   if (outcome && outcome.touched.length > 0) {
-    await secondOpinion({
+    const rulesText = (await loadRules(root)).text;
+    const criteria = parseCriteria([finalTask, (await loadContext(root)).text, rulesText].join("\n"));
+    const authorTitle = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : "API";
+    const verdict = await secondOpinion({
       root,
       task: finalTask,
       changedFiles: outcome.touched,
-      rulesText: (await loadRules(root)).text,
+      rulesText,
       authorId: auth.mode === "agent-cli" ? auth.agent : "api",
       config,
+      criteria,
     });
+    const reportPath = await writeRunReport(root, {
+      task: finalTask,
+      agent: authorTitle,
+      reviewer: verdict?.reviewer,
+      approved: verdict?.approved,
+      files: outcome.touched,
+      criteria,
+      verdicts: verdict?.criteria ?? [],
+      notes: verdict?.notes ?? [],
+    });
+    if (reportPath) log.dim(`Report: ${reportPath} — readable without opening a single diff.`);
   }
 
   if (outcome) {
