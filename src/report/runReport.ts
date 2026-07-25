@@ -14,9 +14,11 @@ export interface RunReportInput {
   reviewer?: string; // who gave the second opinion, if any
   approved?: boolean; // reviewer's overall verdict
   files: string[]; // repo-relative changed files
-  criteria: string[]; // the acceptance criteria that were checked
-  verdicts: CriterionVerdict[]; // one per criterion
+  criteria: string[]; // the acceptance criteria found for this task
+  verdicts: CriterionVerdict[]; // one per criterion — EMPTY when no review ran
   notes: string[]; // reviewer findings / verification warnings
+  /** Why no verdicts exist, when criteria were found but not checked. */
+  notCheckedReason?: string;
 }
 
 // Phase-1 security gate (docs/security-protocols.md): reports may travel to
@@ -42,7 +44,13 @@ export function renderRunReport(input: RunReportInput): string {
     ...input.files.slice(0, 30).map((f) => `- ${f}`),
   ];
 
-  if (input.criteria.length > 0) {
+  if (input.criteria.length > 0 && input.verdicts.length === 0) {
+    // Nothing checked them. Reporting "0 of N met" here would read as "the work
+    // failed" — the opposite of the truth, on a summary a PM may act on.
+    lines.push("", `**Acceptance criteria — not checked** (${input.notCheckedReason ?? "no reviewer ran"})`);
+    for (const [i, c] of input.criteria.entries()) lines.push(`- ? ${i + 1}. ${c}`);
+    lines.push("", "_To have a different vendor check each criterion, add `review: codex` to your rules file._");
+  } else if (input.criteria.length > 0) {
     lines.push("", `**Acceptance criteria — ${met} of ${input.criteria.length} met**`);
     for (const v of input.verdicts) {
       const text = input.criteria[v.index - 1] ?? "";

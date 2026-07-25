@@ -13,6 +13,7 @@ import { resumeCommand } from "./commands/resume";
 import { skillsCommand } from "./commands/skillsCmd";
 import { ticketCommand } from "./commands/ticket";
 import { trackerCommand } from "./commands/tracker";
+import { reviewCommand } from "./commands/review";
 import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
@@ -114,6 +115,12 @@ program
   .argument("[which]", "for `use`: github | linear | jira | auto")
   .description("connect Linear or Jira for `super-t ticket` (GitHub needs no setup — it uses `gh`)")
   .action(trackerCommand);
+
+program
+  .command("review")
+  .argument("[agent]", "claude | cursor | codex | off | status")
+  .description("have a different vendor review every change and check each acceptance criterion")
+  .action(reviewCommand);
 
 program
   .command("doctor")

@@ -3,9 +3,8 @@ import prompts from "prompts";
 import { linearWhoAmI } from "../trackers/linear";
 import { jiraWhoAmI } from "../trackers/jira";
 import { setLinear, setJira, clearTracker, connectedTrackers, normalizeJiraSite } from "../util/credentials";
-import { loadConfig } from "../util/config";
-import { promises as fs } from "node:fs";
-import { stateDir, statePath, STATE_DIR } from "../util/paths";
+import { loadConfig, updateProjectConfig } from "../util/config";
+import { STATE_DIR } from "../util/paths";
 import { log } from "../util/logger";
 
 // `super-t tracker <connect|status|disconnect>` — paste-a-token setup for
@@ -38,24 +37,15 @@ async function use(which?: string): Promise<void> {
     return;
   }
   const root = process.cwd();
-  const file = statePath(root, "config.json");
-  let config: Record<string, unknown> = {};
-  const existing = await fs.readFile(file, "utf8").catch(() => null);
-  if (existing !== null) {
-    // A file that exists but won't parse must NOT be overwritten — that would
-    // silently discard mode, reviewer, budget, and everything else in it.
-    try {
-      config = JSON.parse(existing);
-    } catch {
-      log.error(`${STATE_DIR}/config.json isn't valid JSON — fix it first so your other settings aren't lost.`);
-      process.exitCode = 1;
-      return;
-    }
+  const r = await updateProjectConfig(root, (c) => {
+    if (name === "auto") delete c.tracker;
+    else c.tracker = name;
+  });
+  if (!r.ok) {
+    log.error(r.error);
+    process.exitCode = 1;
+    return;
   }
-  if (name === "auto") delete config.tracker;
-  else config.tracker = name;
-  await fs.mkdir(stateDir(root), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(config, null, 2) + "\n");
   if (name === "auto") log.success(`Tracker pin removed — this project will use the first usable tracker again.`);
   else log.success(`This project now uses ${name === "github" ? "GitHub Issues" : name === "linear" ? "Linear" : "Jira"} for \`super-t ticket\`.`);
   log.dim(`  Saved in ${STATE_DIR}/config.json — commit it to share the choice with your team.`);

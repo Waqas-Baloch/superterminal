@@ -98,7 +98,16 @@ export async function secondOpinion(opts: {
   criteria?: string[];
 }): Promise<ReviewVerdict | null> {
   const reviewerId = resolveReviewer(opts.config, opts.rulesText);
-  if (!reviewerId || opts.changedFiles.length === 0) return null;
+  if (opts.changedFiles.length === 0) return null;
+  if (!reviewerId) {
+    // Silence here produced a report that said "0 of 2 met" for criteria nobody
+    // had checked. Finding criteria and having no reviewer is worth saying.
+    if ((opts.criteria?.length ?? 0) > 0) {
+      log.warn(`  ${opts.criteria!.length} acceptance criteria found — but no reviewer is configured, so they were NOT checked.`);
+      log.dim(`  Add "review: codex" to your rules file (or "reviewer" in ${"config.json"}) to have a different vendor check each one.`);
+    }
+    return null;
+  }
   if (reviewerId === opts.authorId) {
     log.dim(`  Second opinion skipped — reviewer (${reviewerId}) is the author. Set a different vendor.`);
     return null;

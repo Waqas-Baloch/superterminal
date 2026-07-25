@@ -15,7 +15,7 @@ import { rememberChoice } from "../core/memory";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
-import { secondOpinion } from "../core/review";
+import { secondOpinion, resolveReviewer } from "../core/review";
 import { parseCriteria } from "../core/criteria";
 import { buildTicketTask, ticketCriteria } from "../trackers/ticketText";
 import type { TrackerTicket } from "../trackers/types";
@@ -539,6 +539,11 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       criteria,
       verdicts: verdict?.criteria ?? [],
       notes: verdict?.notes ?? [],
+      notCheckedReason: verdict
+        ? undefined
+        : resolveReviewer(config, rulesText)
+          ? "the review did not complete"
+          : "no reviewer configured",
     });
     if (reportPath) log.dim(`Report: ${reportPath} — readable without opening a single diff.`);
   }

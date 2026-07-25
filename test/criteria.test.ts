@@ -79,3 +79,46 @@ describe("run report — PM-readable, secret-free", () => {
     expect(redactSecrets("nothing secret here")).toBe("nothing secret here");
   });
 });
+
+describe("a report must never say criteria FAILED when nothing checked them", () => {
+  const base = {
+    task: "Implement ticket SUP-6: Home Page",
+    agent: "ChatGPT (Codex)",
+    files: ["index.html"],
+    criteria: ["Headline says Ship with confidence", "Button matches brand blue"],
+    notes: [],
+  };
+
+  it('says "not checked", never "0 of 2 met", when no review ran', () => {
+    const md = renderRunReport({ ...base, verdicts: [], notCheckedReason: "no reviewer configured" });
+    // The exact string that read as "the work failed" on a ticket a PM sees.
+    expect(md).not.toContain("0 of 2 met");
+    expect(md).toContain("not checked");
+    expect(md).toContain("no reviewer configured");
+  });
+
+  it("still lists the criteria, marked as unchecked, and says how to enable checking", () => {
+    const md = renderRunReport({ ...base, verdicts: [], notCheckedReason: "no reviewer configured" });
+    expect(md).toContain("? 1. Headline says Ship with confidence");
+    expect(md).toContain("? 2. Button matches brand blue");
+    expect(md).toContain("review: codex");
+  });
+
+  it("distinguishes a review that failed to complete from one never configured", () => {
+    const md = renderRunReport({ ...base, verdicts: [], notCheckedReason: "the review did not complete" });
+    expect(md).toContain("the review did not complete");
+  });
+
+  it("a genuine 0-of-2 result is still reported as such", () => {
+    const md = renderRunReport({
+      ...base,
+      reviewer: "Claude Code",
+      verdicts: [
+        { index: 1, status: "not_met", note: "headline unchanged" },
+        { index: 2, status: "not_met", note: "colour untouched" },
+      ],
+    });
+    expect(md).toContain("0 of 2 met");
+    expect(md).not.toContain("not checked");
+  });
+});

@@ -9,6 +9,8 @@ import { status as telemetryStatus } from "../util/telemetry";
 import { connectedTrackers } from "../util/credentials";
 import { homeDir, stateDir, STATE_DIR } from "../util/paths";
 import { loadConfig } from "../util/config";
+import { loadRules } from "../core/rules";
+import { resolveReviewer } from "../core/review";
 import { VERSION } from "../version";
 import { log } from "../util/logger";
 
@@ -75,6 +77,9 @@ export async function doctorCommand(): Promise<void> {
     .catch(() => false);
   if (rules) ok("Rules file present");
   else warn("No rules file", "run `super-t init` to draft one");
+  const reviewer = config ? resolveReviewer(config, (await loadRules(root)).text) : null;
+  if (reviewer) ok("Second opinion on", `${AGENT_CLIS[reviewer].title} reviews every change`);
+  else warn("Second opinion off", "acceptance criteria won't be checked — `super-t review codex`");
 
   // Trackers (names only — tokens are never displayed)
   const trackers = await connectedTrackers();
