@@ -7,6 +7,7 @@ import type { TrackerAdapter, TrackerTicket } from "../trackers/types";
 import { ticketCriteria } from "../trackers/ticketText";
 import { stateDir } from "../util/paths";
 import { runCommand } from "./run";
+import { loadConfig } from "../util/config";
 import { log } from "../util/logger";
 
 // `super-t ticket [id]` — the PM loop, end to end: pick a ticket assigned to
@@ -16,7 +17,8 @@ import { log } from "../util/logger";
 
 export async function ticketCommand(idArg: string | undefined, opts: { mode?: string; with?: string } = {}): Promise<void> {
   const root = process.cwd();
-  const resolved = await resolveTracker(root);
+  const config = await loadConfig(root).catch(() => null);
+  const resolved = await resolveTracker(root, config?.tracker);
   if ("reasons" in resolved) {
     log.error("No ticket tracker is usable here:");
     for (const r of resolved.reasons) log.dim(`  · ${r}`);

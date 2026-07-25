@@ -12,6 +12,9 @@ const configSchema = z.object({
   // Second Opinion: a DIFFERENT vendor reviews every accepted diff. Also
   // settable as a `review: codex` line in any rules file.
   reviewer: z.enum(["claude-code", "cursor", "codex"]).optional(),
+  // Pin which ticket tracker `super-t ticket` uses in this repo (a project can
+  // have a GitHub remote while the team plans in Jira).
+  tracker: z.enum(["github", "linear", "jira"]).optional(),
   budgetTokens: z.number().int().positive().default(30_000),
   include: z.array(z.string()).default([]),
   exclude: z.array(z.string()).default([]),

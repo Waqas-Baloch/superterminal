@@ -78,6 +78,11 @@ super-t revert           # restore the last run
 | `super-t plan "task"` | Preview what would be sent — nothing is sent |
 | `super-t flow "a, then b"` | Multi-step, multi-agent workflow |
 | `super-t compare "task"` | Same task through every connected agent |
+| `super-t ticket [id]` | Implement a tracker ticket — gated, cross-vendor-verified, summary posted back with your approval |
+| `super-t tracker connect` | Connect Linear or Jira (GitHub Issues needs no setup — it uses `gh`) |
+| `super-t resume [--with agent]` | Continue the last task — with any vendor |
+| `super-t doctor` | Check agents, connection, trackers, and project state |
+| `super-t skills sync` | One skill set for every agent — materialize to native formats |
 | `super-t connect` | One-time setup — pick your agent |
 | `super-t switch` | Change the active agent |
 | `super-t search` | Switch project |

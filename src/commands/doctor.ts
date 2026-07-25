@@ -6,6 +6,7 @@ import { AGENT_CLIS, isAgentInstalled, pathWithLocalBin } from "../claude/agentC
 import { resolveAuth } from "../util/globalConfig";
 import { lastLimit, agoLabel } from "../util/limits";
 import { status as telemetryStatus } from "../util/telemetry";
+import { connectedTrackers } from "../util/credentials";
 import { homeDir, stateDir, STATE_DIR } from "../util/paths";
 import { loadConfig } from "../util/config";
 import { VERSION } from "../version";
@@ -74,6 +75,16 @@ export async function doctorCommand(): Promise<void> {
     .catch(() => false);
   if (rules) ok("Rules file present");
   else warn("No rules file", "run `super-t init` to draft one");
+
+  // Trackers (names only — tokens are never displayed)
+  const trackers = await connectedTrackers();
+  log.info("");
+  log.info(pc.bold("  Ticket trackers"));
+  ok("GitHub Issues", "via `gh` login");
+  if (trackers.includes("linear")) ok("Linear connected");
+  else warn("Linear not connected", "super-t tracker connect");
+  if (trackers.includes("jira")) ok("Jira connected");
+  else warn("Jira not connected", "super-t tracker connect");
 
   // Home + telemetry
   log.info("");

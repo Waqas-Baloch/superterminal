@@ -12,6 +12,7 @@ import { doctorCommand } from "./commands/doctor";
 import { resumeCommand } from "./commands/resume";
 import { skillsCommand } from "./commands/skillsCmd";
 import { ticketCommand } from "./commands/ticket";
+import { trackerCommand } from "./commands/tracker";
 import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
@@ -106,6 +107,12 @@ program
   .option("--mode <mode>", "safety dial: safe | standard | full")
   .description("implement a tracker ticket end to end — gated, cross-vendor-verified, summary posted back with your approval")
   .action(ticketCommand);
+
+program
+  .command("tracker")
+  .argument("[action]", "connect | status | disconnect")
+  .description("connect Linear or Jira for `super-t ticket` (GitHub needs no setup — it uses `gh`)")
+  .action(trackerCommand);
 
 program
   .command("doctor")
