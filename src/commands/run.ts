@@ -39,7 +39,7 @@ import {
   type AgentUsage,
   type SafetyMode,
 } from "../claude/agentCli";
-import { recordLimit, inCooldown } from "../util/limits";
+import { recordLimit, inCooldown, lastLimit, agoLabel } from "../util/limits";
 import { diffAgainst, restoreTo, snapshot as snapshotIndex } from "./compare";
 import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
@@ -817,6 +817,21 @@ async function runViaAgentCli(
 ): Promise<RunOutcome | null> {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const mode = (opts.mode ?? config.mode) as SafetyMode;
+
+  // If the connected agent hit its limit minutes ago, don't ritually retry it —
+  // start with a healthy one and say so. The ledger is the memory of the "not
+  // now" it already gave us.
+  if (await inCooldown(agent.id)) {
+    const healthy = await pickLimitFallback(agent);
+    if (healthy) {
+      const at = await lastLimit(agent.id);
+      log.info("");
+      log.warn(`${agent.title} hit its usage limit ${at ? agoLabel(at) : "recently"}.`);
+      log.info(`${pc.cyan("↻")} Starting with ${pc.bold(healthy.title)} instead.`);
+      agent = healthy;
+    }
+  }
+
   // Snapshot file contents up front so we can diff (and revert) without git.
   const snapshot = await snapshotContents(root, index);
 
