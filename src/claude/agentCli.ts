@@ -219,8 +219,11 @@ export function applyMode(agent: AgentCliDef, args: string[], mode: SafetyMode):
       out.push("--dangerously-skip-permissions");
     }
     if (mode === "safe") out.push("--disallowedTools", "Bash", "WebFetch", "WebSearch");
-    if (mode === "review")
-      out.push("--disallowedTools", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash");
+    // Verified against the CLI: these four are live deny rules. "MultiEdit" is
+    // not a tool any more and produced a "matches no known tool" warning —
+    // a dead rule in a security guard is worse than no rule, because it reads
+    // like protection.
+    if (mode === "review") out.push("--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash");
     return out;
   }
   // cursor: no verified flag surface on this machine — standard args, and the

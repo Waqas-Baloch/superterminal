@@ -119,6 +119,7 @@ program
 program
   .command("review")
   .argument("[agent]", "claude | cursor | codex | off | status")
+  .option("-a, --always", "apply to every project on this machine, not just this one")
   .description("have a different vendor review every change and check each acceptance criterion")
   .action(reviewCommand);
 

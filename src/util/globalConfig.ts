@@ -15,6 +15,8 @@ const AGENT_SOURCES: Record<AgentCliId, string> = {
 const schema = z.object({
   provider: z.enum(["api-key", "oauth", "claude-code", "cursor", "codex"]),
   apiKey: z.string().optional(),
+  // Default second-opinion reviewer for every project (a project can override).
+  reviewer: z.enum(["claude-code", "cursor", "codex"]).optional(),
 });
 
 export type GlobalConfig = z.infer<typeof schema>;
@@ -34,10 +36,24 @@ export async function loadGlobalConfig(): Promise<GlobalConfig | null> {
   }
 }
 
+/** Set the machine-wide default reviewer, preserving the stored connection. */
+export async function setGlobalReviewer(reviewer: AgentCliId | null): Promise<boolean> {
+  const existing = await loadGlobalConfig();
+  if (!existing) return false; // nothing connected yet — nothing to attach it to
+  const next = { ...existing };
+  if (reviewer) next.reviewer = reviewer;
+  else delete next.reviewer;
+  await saveGlobalConfig(next);
+  return true;
+}
+
 export async function saveGlobalConfig(config: GlobalConfig): Promise<string> {
   await fs.mkdir(homeDir(), { recursive: true });
   const file = configFile();
   await fs.writeFile(file, JSON.stringify(config, null, 2) + "\n", { mode: 0o600 });
+  // writeFile's mode only applies when it CREATES the file — an existing config
+  // (this one can hold an API key) would keep whatever permissions it had.
+  await fs.chmod(file, 0o600).catch(() => {});
   return file;
 }
 

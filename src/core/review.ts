@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef } from "../claude/agentCli";
 import { agentFrom } from "./flow";
-import type { AgentCliId } from "../util/globalConfig";
+import { loadGlobalConfig, type AgentCliId } from "../util/globalConfig";
 import type { ProjectConfig } from "../util/config";
 import { log } from "../util/logger";
 import { parseCriteriaVerdicts, statusMark, type CriterionVerdict } from "./criteria";
@@ -14,11 +14,52 @@ import { parseCriteriaVerdicts, statusMark, type CriterionVerdict } from "./crit
 // Advisory by design: the verdict is printed, never auto-reverted. The human
 // stays the decision-maker; `super-t revert` is one command away.
 
-/** Who reviews: config `reviewer:`, or a `review: codex` line in any rules file. */
-export function resolveReviewer(config: ProjectConfig, rulesText: string): AgentCliId | null {
+/**
+ * Who reviews, most specific first: this project's config, a `review: codex`
+ * line in any rules file, then the machine-wide default. An unrecognized name
+ * in a rules line falls through rather than cancelling the global default.
+ */
+export function resolveReviewer(
+  config: ProjectConfig,
+  rulesText: string,
+  globalDefault?: AgentCliId | null,
+): AgentCliId | null {
   if (config.reviewer) return config.reviewer;
   const m = rulesText.match(/^\s*review:\s*([a-z ()-]+?)\s*$/im);
-  return m ? agentFrom(m[1]) : null;
+  if (m) {
+    const id = agentFrom(m[1]);
+    if (id) return id;
+  }
+  return globalDefault ?? null;
+}
+
+/** Where the reviewer setting came from — so `status` and doctor can explain it. */
+export function reviewerSource(config: ProjectConfig, rulesText: string, globalDefault?: AgentCliId | null): string {
+  if (config.reviewer) return "this project";
+  if (rulesText.match(/^\s*review:\s*([a-z ()-]+?)\s*$/im)) return "a rules file";
+  return globalDefault ? "every project (machine default)" : "not set";
+}
+
+/**
+ * The agent that will actually review, given who wrote the code.
+ *
+ * "Review every change" must not quietly become "review most changes": when
+ * the configured reviewer is the author (or isn't installed), pick another
+ * installed vendor instead of skipping. Returns null only when no other vendor
+ * exists to do it.
+ */
+export async function chooseReviewer(
+  configured: AgentCliId,
+  authorId: AgentCliId | "api",
+): Promise<{ id: AgentCliId; substituted: boolean } | null> {
+  if (configured !== authorId && (await isAgentInstalled(AGENT_CLIS[configured].bin))) {
+    return { id: configured, substituted: false };
+  }
+  for (const candidate of Object.values(AGENT_CLIS)) {
+    if (candidate.id === authorId) continue;
+    if (await isAgentInstalled(candidate.bin)) return { id: candidate.id, substituted: true };
+  }
+  return null;
 }
 
 export interface ReviewVerdict {
@@ -97,9 +138,9 @@ export async function secondOpinion(opts: {
   config: ProjectConfig;
   criteria?: string[];
 }): Promise<ReviewVerdict | null> {
-  const reviewerId = resolveReviewer(opts.config, opts.rulesText);
+  const configured = resolveReviewer(opts.config, opts.rulesText, (await loadGlobalConfig())?.reviewer);
   if (opts.changedFiles.length === 0) return null;
-  if (!reviewerId) {
+  if (!configured) {
     // Silence here produced a report that said "0 of 2 met" for criteria nobody
     // had checked. Finding criteria and having no reviewer is worth saying.
     if ((opts.criteria?.length ?? 0) > 0) {
@@ -108,14 +149,14 @@ export async function secondOpinion(opts: {
     }
     return null;
   }
-  if (reviewerId === opts.authorId) {
-    log.dim(`  Second opinion skipped — reviewer (${reviewerId}) is the author. Set a different vendor.`);
+  const chosen = await chooseReviewer(configured, opts.authorId);
+  if (!chosen) {
+    log.warn(`  Second opinion skipped — no other agent is installed to review ${opts.authorId}'s work.`);
     return null;
   }
-  const reviewer: AgentCliDef = AGENT_CLIS[reviewerId];
-  if (!(await isAgentInstalled(reviewer.bin))) {
-    log.dim(`  Second opinion skipped — ${reviewer.title} isn't installed.`);
-    return null;
+  const reviewer: AgentCliDef = AGENT_CLIS[chosen.id];
+  if (chosen.substituted) {
+    log.dim(`  ${AGENT_CLIS[configured].title} can't review its own work — ${reviewer.title} is reviewing instead.`);
   }
 
   log.info("");

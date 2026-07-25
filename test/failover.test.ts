@@ -96,7 +96,12 @@ describe("applyMode — one dial, each vendor's native vocabulary", () => {
   it("review makes the reviewer read-only — a reviewer that can edit isn't a reviewer", () => {
     expect(applyMode(codex, codex.runArgs("t"), "review")).toContain("read-only");
     const c = applyMode(claude, claude.runArgs("t"), "review");
-    expect(c.join(" ")).toContain("Edit");
-    expect(c.join(" ")).toContain("Write");
+    expect(c).toContain("Edit");
+    expect(c).toContain("Write");
+    expect(c).toContain("NotebookEdit");
+    expect(c).toContain("Bash");
+    // Every deny rule must name a tool the CLI actually has — a rule that
+    // matches nothing looks like protection while providing none.
+    expect(c).not.toContain("MultiEdit");
   });
 });

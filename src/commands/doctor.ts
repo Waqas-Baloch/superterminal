@@ -3,14 +3,14 @@ import nodePath from "node:path";
 import pc from "picocolors";
 import { execa } from "execa";
 import { AGENT_CLIS, isAgentInstalled, pathWithLocalBin } from "../claude/agentCli";
-import { resolveAuth } from "../util/globalConfig";
+import { resolveAuth, loadGlobalConfig } from "../util/globalConfig";
 import { lastLimit, agoLabel } from "../util/limits";
 import { status as telemetryStatus } from "../util/telemetry";
 import { connectedTrackers } from "../util/credentials";
 import { homeDir, stateDir, STATE_DIR } from "../util/paths";
 import { loadConfig } from "../util/config";
 import { loadRules } from "../core/rules";
-import { resolveReviewer } from "../core/review";
+import { resolveReviewer, reviewerSource } from "../core/review";
 import { VERSION } from "../version";
 import { log } from "../util/logger";
 
@@ -77,9 +77,11 @@ export async function doctorCommand(): Promise<void> {
     .catch(() => false);
   if (rules) ok("Rules file present");
   else warn("No rules file", "run `super-t init` to draft one");
-  const reviewer = config ? resolveReviewer(config, (await loadRules(root)).text) : null;
-  if (reviewer) ok("Second opinion on", `${AGENT_CLIS[reviewer].title} reviews every change`);
-  else warn("Second opinion off", "acceptance criteria won't be checked — `super-t review codex`");
+  const globalReviewer = (await loadGlobalConfig())?.reviewer ?? null;
+  const rulesText = (await loadRules(root)).text;
+  const reviewer = config ? resolveReviewer(config, rulesText, globalReviewer) : globalReviewer;
+  if (reviewer) ok("Second opinion on", `${AGENT_CLIS[reviewer].title} · set for ${config ? reviewerSource(config, rulesText, globalReviewer) : "every project"}`);
+  else warn("Second opinion off", "acceptance criteria won't be checked — `super-t review codex --always`");
 
   // Trackers (names only — tokens are never displayed)
   const trackers = await connectedTrackers();

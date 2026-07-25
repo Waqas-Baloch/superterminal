@@ -157,3 +157,14 @@ describe("adapter scope — wording must match where assignment lives", () => {
     expect(byId).toEqual({ github: "repository", linear: "workspace", jira: "workspace" });
   });
 });
+
+describe("global config permissions — it can hold an API key", () => {
+  it("is forced to 0600 even when the file already existed with looser permissions", async () => {
+    const { saveGlobalConfig } = await import("../src/util/globalConfig");
+    const file = path.join(home, "config.json");
+    await fs.mkdir(home, { recursive: true });
+    await fs.writeFile(file, JSON.stringify({ provider: "codex" }), { mode: 0o644 });
+    await saveGlobalConfig({ provider: "codex", reviewer: "claude-code" });
+    expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
+  });
+});
