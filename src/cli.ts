@@ -8,6 +8,9 @@ import { initCommand } from "./commands/init";
 import { compareCommand } from "./commands/compare";
 import { flowCommand } from "./commands/flow";
 import { telemetryCommand } from "./commands/telemetry";
+import { doctorCommand } from "./commands/doctor";
+import { resumeCommand } from "./commands/resume";
+import { skillsCommand } from "./commands/skillsCmd";
 import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
@@ -78,6 +81,7 @@ program
   .option("--budget <tokens>", "manifest token budget per step")
   .option("-y, --yes", "skip the plan confirmation")
   .description("run a multi-step task, routing each step to the agent you name")
+  .option("--mode <mode>", "safety dial: safe | standard | full")
   .action(flowCommand);
 
 program
@@ -85,6 +89,8 @@ program
   .argument("<task>", "task description")
   .option("--budget <tokens>", "manifest token budget")
   .description("run the same task through every connected agent and keep the best result")
+  .option("--parallel", "run every agent at once, each in its own git worktree")
+  .option("--mode <mode>", "safety dial: safe | standard | full")
   .action(compareCommand);
 
 program
@@ -92,6 +98,25 @@ program
   .argument("[action]", "on | off | status")
   .description("show or change anonymous usage counting")
   .action(telemetryCommand);
+
+program
+  .command("doctor")
+  .description("check agents, connection, and project state in one shot")
+  .action(doctorCommand);
+
+program
+  .command("resume")
+  .argument("[task]", "optional extra instruction for the continuation")
+  .option("--with <agent>", "continue with a different agent (claude | cursor | codex)")
+  .option("--mode <mode>", "safety dial: safe | standard | full")
+  .description("continue the last task in this project — with any agent")
+  .action(resumeCommand);
+
+program
+  .command("skills")
+  .argument("[action]", "sync | import")
+  .description("one skill set for every agent: sync to native formats, or import existing")
+  .action(skillsCommand);
 
 program
   .command("revert")

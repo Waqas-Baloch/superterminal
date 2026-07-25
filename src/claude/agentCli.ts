@@ -192,14 +192,72 @@ export interface AgentCliDef {
   surgicalArgs?: string[];
 }
 
-/** Compose the final argv: base args + JSON-usage flags + (optionally) surgical restrictions. */
-export function composeArgs(agent: AgentCliDef, baseArgs: string[], surgical: boolean): string[] {
-  const out = [...baseArgs];
+// One safety dial, translated to each agent's native vocabulary.
+//   safe     → the agent keeps its sandbox AND loses shell/network tools
+//   standard → each agent's sandboxed default (today's behavior)
+//   full     → the agent's own "skip permissions" switch; explicit opt-in only
+//   review   → internal: read-only, for Second Opinion reviewers — a reviewer
+//              that can edit isn't a reviewer
+export type SafetyMode = "safe" | "standard" | "full" | "review";
+
+export function applyMode(agent: AgentCliDef, args: string[], mode: SafetyMode): string[] {
+  if (mode === "standard") return args;
+  const out = [...args];
+  if (agent.id === "codex") {
+    const i = out.indexOf("--sandbox");
+    if (i >= 0 && i + 1 < out.length) {
+      if (mode === "full") out[i + 1] = "danger-full-access";
+      if (mode === "review") out[i + 1] = "read-only";
+      // safe: workspace-write already blocks network — unchanged
+    }
+    return out;
+  }
+  if (agent.id === "claude-code") {
+    if (mode === "full") {
+      const i = out.indexOf("--permission-mode");
+      if (i >= 0) out.splice(i, 2);
+      out.push("--dangerously-skip-permissions");
+    }
+    if (mode === "safe") out.push("--disallowedTools", "Bash", "WebFetch", "WebSearch");
+    if (mode === "review")
+      out.push("--disallowedTools", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash");
+    return out;
+  }
+  // cursor: no verified flag surface on this machine — standard args, and the
+  // gate + post-run verification stay the backstop.
+  return out;
+}
+
+/** Compose the final argv: base args + mode translation + JSON-usage flags + surgical restrictions. */
+export function composeArgs(agent: AgentCliDef, baseArgs: string[], surgical: boolean, mode: SafetyMode = "standard"): string[] {
+  const out = applyMode(agent, [...baseArgs], mode);
   if (agent.jsonUsage) out.push(...agent.jsonUsage.args);
   // surgicalArgs go last: Claude Code's --disallowedTools is variadic and would
-  // otherwise swallow following flags.
+  // otherwise swallow following flags. (When surgical is on, its tool cuts
+  // supersede safe-mode's — both remove the discovery/exec tools.)
   if (surgical && agent.surgicalArgs) out.push(...agent.surgicalArgs);
   return out;
+}
+
+/** A vendor refused work because a usage/rate limit was hit — the one failure
+ * failover may act on. Anything else stays a plain error: auto-retrying a
+ * genuine bug on a second vendor would just spend a second vendor's quota. */
+export class AgentLimitError extends Error {
+  constructor(
+    public agentId: AgentCliId,
+    detail: string,
+  ) {
+    super(`${agentId} hit its usage limit${detail ? `: ${detail.slice(0, 160)}` : ""}`);
+    this.name = "AgentLimitError";
+  }
+}
+
+const LIMIT_RE =
+  /usage limit|rate.?limit|limit (reached|exceeded)|quota (exceeded|reached)|insufficient_quota|out of (credits|quota)|too many requests|429|upgrade to continue|hit your .*limit|exceeded your current/i;
+
+/** Does this error text look like a vendor usage limit (vs a real failure)? */
+export function isLimitError(text: string): boolean {
+  return LIMIT_RE.test(text);
 }
 
 export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
@@ -280,8 +338,9 @@ export async function runAgent(
   prompt: string,
   onFirstOutput?: () => void,
   surgical = false,
+  mode: SafetyMode = "standard",
 ): Promise<AgentRunResult> {
-  return invoke(agent, root, agent.runArgs(prompt), onFirstOutput, surgical);
+  return invoke(agent, root, agent.runArgs(prompt), onFirstOutput, surgical, mode);
 }
 
 export async function continueAgent(
@@ -290,8 +349,9 @@ export async function continueAgent(
   prompt: string,
   onFirstOutput?: () => void,
   surgical = false,
+  mode: SafetyMode = "standard",
 ): Promise<AgentRunResult> {
-  return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput, surgical);
+  return invoke(agent, root, agent.continueArgs(prompt), onFirstOutput, surgical, mode);
 }
 
 async function invoke(
@@ -300,6 +360,7 @@ async function invoke(
   args: string[],
   onFirstOutput?: () => void,
   surgical = false,
+  mode: SafetyMode = "standard",
 ): Promise<AgentRunResult> {
   // Relay the agent's output live rather than inheriting it. Headless/print mode
   // has no interactive TUI to preserve — it's a stream. In plain mode we forward
@@ -312,7 +373,7 @@ async function invoke(
   // deadlock); in a pipe/CI it gets EOF instead.
   const stdinMode = process.stdin.isTTY ? "inherit" : "ignore";
   const jsonMode = agent.jsonUsage;
-  const child = execa(agent.bin, composeArgs(agent, args, surgical), {
+  const child = execa(agent.bin, composeArgs(agent, args, surgical, mode), {
     cwd: root,
     reject: false,
     timeout: AGENT_TIMEOUT_MS,
@@ -330,6 +391,10 @@ async function invoke(
   };
   let usage: AgentUsage | null = null;
   let text = ""; // the agent's narration — suppressed on screen, kept for flow steps
+  let errTail = ""; // last stderr bytes, kept to recognize a usage-limit refusal
+  const keepTail = (chunk: Buffer): void => {
+    errTail = (errTail + chunk.toString()).slice(-2000);
+  };
   const status = jsonMode ? statusLine() : null;
 
   if (jsonMode && status) {
@@ -358,6 +423,7 @@ async function invoke(
       }
     });
     child.stderr?.on("data", (chunk: Buffer) => {
+      keepTail(chunk);
       announce();
       status.stop();
       process.stderr.write(chunk);
@@ -370,12 +436,19 @@ async function invoke(
       });
     };
     relay(child.stdout, process.stdout);
-    relay(child.stderr, process.stderr);
+    child.stderr?.on("data", (chunk: Buffer) => {
+      keepTail(chunk);
+      announce();
+      process.stderr.write(chunk);
+    });
   }
 
   const result = await child;
   status?.stop();
   if (result.exitCode !== 0) {
+    // A limit refusal is not a failure of the task — it's a vendor saying "not
+    // now". Surface it as its own type so callers can fail over safely.
+    if (isLimitError(errTail) || isLimitError(text)) throw new AgentLimitError(agent.id, errTail.trim() || text.trim());
     throw new Error(`${agent.bin} exited with code ${result.exitCode} (see its output above)`);
   }
   return { usage, text: text.trim() };

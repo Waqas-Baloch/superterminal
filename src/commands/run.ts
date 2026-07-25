@@ -15,6 +15,7 @@ import { rememberChoice } from "../core/memory";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
+import { secondOpinion } from "../core/review";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
 import { seedsFrom, buildSessionNote, type SessionMemory } from "../core/session";
 import { renderBox, darkGreen } from "../report/box";
@@ -28,7 +29,18 @@ import { compareCommand } from "./compare";
 import { pickProject, homeRelative } from "./search";
 import { EditStage } from "../claude/tools";
 import { ClaudeRunner, type RunnerUsage } from "../claude/runner";
-import { AGENT_CLIS, runAgent, continueAgent, type AgentCliDef, type AgentUsage } from "../claude/agentCli";
+import {
+  AGENT_CLIS,
+  runAgent,
+  continueAgent,
+  isAgentInstalled,
+  AgentLimitError,
+  type AgentCliDef,
+  type AgentUsage,
+  type SafetyMode,
+} from "../claude/agentCli";
+import { recordLimit, inCooldown } from "../util/limits";
+import { diffAgainst, restoreTo, snapshot as snapshotIndex } from "./compare";
 import { runValidators, type ValidationResult } from "../validate/validator";
 import { renderFileDiff } from "../report/diff";
 import { loadConfig, type ProjectConfig } from "../util/config";
@@ -50,6 +62,8 @@ interface RunOptions {
   focus?: boolean;
   ask?: boolean;
   surgical?: boolean; // experimental: restrict the agent to a direct edit, no exploration
+  mode?: string; // safety dial: safe | standard | full (default from config)
+  agent?: string; // override the connected agent for this invocation (resume --with)
 }
 
 interface ExecContext {
@@ -71,7 +85,7 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   const root = process.cwd();
 
   // Preflight: fail in the first second, not after indexing
-  const auth = await resolveAuth();
+  let auth = await resolveAuth();
   if (!auth) {
     log.error("Not connected to an AI provider.");
     log.info("Run `super-t connect` for one-time setup — API key, browser login, Claude Code, Cursor, or ChatGPT.");
@@ -81,6 +95,9 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   const config = await loadConfig(root);
+  if (opts.agent && (opts.agent === "claude-code" || opts.agent === "cursor" || opts.agent === "codex")) {
+    auth = { mode: "agent-cli", agent: opts.agent, source: `--with ${opts.agent}` };
+  }
   const ctx: ExecContext = {
     root,
     auth,
@@ -131,6 +148,8 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     } else if (cmd.type === "search") {
       const picked = await pickProject();
       if (picked) await retargetRoot(ctx, picked);
+    } else if (cmd.type === "doctor") {
+      await (await import("./doctor")).doctorCommand();
     } else if (cmd.type === "help") {
       printSessionHelp();
     } else if (cmd.type === "hint") {
@@ -176,6 +195,7 @@ type SessionCommand =
   | { type: "switch" }
   | { type: "connect" }
   | { type: "search" }
+  | { type: "doctor" }
   | { type: "help" }
   | { type: "clear" }
   | { type: "menu" } // bare "/" or an unknown /command → show the command picker
@@ -189,7 +209,7 @@ type SessionCommand =
  */
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|help|clear|cls)\b\s*(.*)$/i);
+  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|doctor|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
     // People naturally type `super-t flow "…"` inside the session — drop the
@@ -234,6 +254,7 @@ const MENU: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview a task — don't send it", arg: true },
   { value: "flow", title: "/flow", description: "multi-step task across agents", arg: true },
   { value: "compare", title: "/compare", description: "same task through every agent", arg: true },
+  { value: "doctor", title: "/doctor", description: "check agents, connection, and project state" },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
   { value: "connect", title: "/connect", description: "set up or re-authenticate a provider" },
@@ -273,6 +294,8 @@ function navCommand(name: string): SessionCommand | null {
       return { type: "connect" };
     case "search":
       return { type: "search" };
+    case "doctor":
+      return { type: "doctor" };
     case "help":
       return { type: "help" };
     case "clear":
@@ -470,9 +493,43 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     }
   }
 
+  // Second Opinion: a different vendor reviews the accepted diff against the
+  // rules. Advisory — printed, never auto-reverted.
+  if (outcome && outcome.touched.length > 0) {
+    await secondOpinion({
+      root,
+      task: finalTask,
+      changedFiles: outcome.touched,
+      rulesText: (await loadRules(root)).text,
+      authorId: auth.mode === "agent-cli" ? auth.agent : "api",
+      config,
+    });
+  }
+
   if (outcome) {
     if (!scaffold && repoTokens > 0) printContextSummary(manifestTokens, repoTokens);
     ctx.memory = { task: finalTask, touched: outcome.touched, summary: outcome.summary.slice(0, 400) };
+    // Persisted so `super-t resume` can continue this work in a NEW process —
+    // with any vendor. The conversation isn't locked to the agent that had it.
+    await fs
+      .mkdir(stateDir(root), { recursive: true })
+      .then(() =>
+        fs.writeFile(
+          nodePath.join(stateDir(root), "session.json"),
+          JSON.stringify(
+            {
+              task: finalTask,
+              summary: outcome.summary.slice(0, 600),
+              touched: outcome.touched.slice(0, 30),
+              agent: auth.mode === "agent-cli" ? auth.agent : "api",
+              at: new Date().toISOString(),
+            },
+            null,
+            2,
+          ),
+        ),
+      )
+      .catch(() => {});
   }
 
   await track("task_completed", root, {
@@ -739,6 +796,17 @@ async function runViaApi(
 // own auth and edit loop; Super Terminal tracks and undoes changes via git
 // ---------------------------------------------------------------------------
 
+/** Installed agent, not the one that just refused, not in limit cooldown. */
+async function pickLimitFallback(failed: AgentCliDef): Promise<AgentCliDef | null> {
+  for (const candidate of Object.values(AGENT_CLIS)) {
+    if (candidate.id === failed.id) continue;
+    if (!(await isAgentInstalled(candidate.bin))) continue;
+    if (await inCooldown(candidate.id)) continue;
+    return candidate;
+  }
+  return null;
+}
+
 async function runViaAgentCli(
   root: string,
   manifest: string,
@@ -748,6 +816,7 @@ async function runViaAgentCli(
   config: ProjectConfig,
 ): Promise<RunOutcome | null> {
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
+  const mode = (opts.mode ?? config.mode) as SafetyMode;
   // Snapshot file contents up front so we can diff (and revert) without git.
   const snapshot = await snapshotContents(root, index);
 
@@ -762,23 +831,52 @@ async function runViaAgentCli(
   // The agent takes a while to boot and think before it says anything. Fill
   // that dead air with the wave, and clear it the instant real output lands.
   let usage: AgentUsage | null = null;
+  const prompt = `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.${surgicalNudge}`;
   const wave = pixelWave(`${agent.title} is thinking…`);
   try {
-    usage = (
-      await runAgent(
-        agent,
-        root,
-        `${manifest}\n\nImplement the task now, exactly as described under "How to apply this task" — smallest change that literally satisfies it, nothing extra.${surgicalNudge}`,
-        () => wave.stop(),
-        surgical,
-      )
-    ).usage;
+    usage = (await runAgent(agent, root, prompt, () => wave.stop(), surgical, mode)).usage;
     wave.stop(); // agent finished without ever printing
   } catch (err) {
     wave.stop();
-    log.error(err instanceof Error ? err.message : String(err));
-    process.exitCode = 1;
-    return null;
+    if (err instanceof AgentLimitError) {
+      // Vendor said "not now", not "this task is wrong" — the one failure we
+      // fail over on. The handoff contract: the fallback agent starts from the
+      // exact pre-run state, never from a half-edited tree.
+      await recordLimit(agent.id);
+      await track("error", root, { code: "limit", agent: agent.id });
+      const fallback = await pickLimitFallback(agent);
+      if (!fallback) {
+        log.error(err.message);
+        log.dim("No other agent is available to take over (installed + not in limit cooldown).");
+        process.exitCode = 1;
+        return null;
+      }
+      log.info("");
+      log.warn(`${agent.title} hit its usage limit.`);
+      const partial = await diffAgainst(root, config, new Map([...snapshot].map(([k, v]) => [k, v as string | null])));
+      if (partial.length > 0) {
+        await restoreTo(root, new Map([...snapshot]), partial);
+        log.dim(`  Rolled back ${partial.length} partial change(s) so ${fallback.title} starts clean.`);
+      }
+      log.info(`${pc.cyan("↻")} Continuing with ${pc.bold(fallback.title)} — same task, same context.`);
+      log.info("");
+      agent = fallback;
+      const wave2 = pixelWave(`${agent.title} is thinking…`);
+      try {
+        usage = (await runAgent(agent, root, prompt, () => wave2.stop(), surgical, mode)).usage;
+        wave2.stop();
+      } catch (err2) {
+        wave2.stop();
+        if (err2 instanceof AgentLimitError) await recordLimit(agent.id);
+        log.error(err2 instanceof Error ? err2.message : String(err2));
+        process.exitCode = 1;
+        return null;
+      }
+    } else {
+      log.error(err instanceof Error ? err.message : String(err));
+      process.exitCode = 1;
+      return null;
+    }
   }
 
   let validationFailed = false;
@@ -796,7 +894,7 @@ async function runViaAgentCli(
       log.info(pc.dim(`── repair attempt ${attempt + 1}/${MAX_REPAIRS} ──`));
       const repairWave = pixelWave(`${agent.title} is thinking…`);
       try {
-        usage = mergeUsage(usage, (await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop(), surgical)).usage);
+        usage = mergeUsage(usage, (await continueAgent(agent, root, repairPrompt(failed), () => repairWave.stop(), surgical, mode)).usage);
         repairWave.stop();
       } catch (err) {
         repairWave.stop();

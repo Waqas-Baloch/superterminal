@@ -9,9 +9,19 @@ import { selectFiles } from "../core/selector";
 import { safetyGate } from "../core/gate";
 import { findMissingKeeps } from "../core/understanding";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
+import { secondOpinion } from "../core/review";
 import { generateManifest } from "../core/manifest";
 import { loadSkills } from "../core/skills";
-import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef } from "../claude/agentCli";
+import {
+  AGENT_CLIS,
+  runAgent,
+  isAgentInstalled,
+  AgentLimitError,
+  type AgentCliDef,
+  type SafetyMode,
+} from "../claude/agentCli";
+import { recordLimit, inCooldown } from "../util/limits";
+import { restoreTo } from "./compare";
 import { snapshot, diffAgainst } from "./compare";
 import { printSemanticSummary } from "./shared";
 import { renderFileDiff } from "../report/diff";
@@ -55,10 +65,22 @@ async function pickSubstitute(
   return choice === "substitute" ? fallback : null;
 }
 
-export async function flowCommand(input: string, opts: { budget?: string; yes?: boolean } = {}): Promise<void> {
+/** Installed agent, not the one that just refused, not in limit cooldown. */
+async function pickFlowFallback(failed: AgentCliDef): Promise<AgentCliDef | null> {
+  for (const candidate of Object.values(AGENT_CLIS)) {
+    if (candidate.id === failed.id) continue;
+    if (!(await isAgentInstalled(candidate.bin))) continue;
+    if (await inCooldown(candidate.id)) continue;
+    return candidate;
+  }
+  return null;
+}
+
+export async function flowCommand(input: string, opts: { budget?: string; yes?: boolean; mode?: string } = {}): Promise<void> {
   const root = process.cwd();
   const config = await loadConfig(root);
   const budget = opts.budget ? Number(opts.budget) : config.budgetTokens;
+  const mode = (opts.mode ?? config.mode) as SafetyMode;
 
   const steps = parseFlow(input);
   if (steps.length === 0) {
@@ -222,20 +244,62 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
       .filter(Boolean)
       .join("\n\n");
 
+    // Step-start snapshot: if this agent hits its usage limit partway through,
+    // the fallback must start from THIS state — never from a half-edited tree.
+    const stepStart = await snapshot(root, await indexRepo(root, config));
     const wave = pixelWave(`${agent.title} is working…`);
     let text = "";
+    let runningAgent = agent;
     try {
-      const r = await runAgent(agent, root, prompt, () => wave.stop());
+      const r = await runAgent(runningAgent, root, prompt, () => wave.stop(), false, mode);
       wave.stop();
       text = r.text;
     } catch (err) {
       wave.stop();
-      log.error(err instanceof Error ? err.message : String(err));
-      await captureOriginals(); // a failed step may still have written files
-      await recordProgress(i);
-      log.dim(`Flow stopped at step ${i + 1}. Undo everything it changed with \`super-t revert\`.`);
-      process.exitCode = 1;
-      return;
+      if (err instanceof AgentLimitError) {
+        await recordLimit(runningAgent.id);
+        await track("error", root, { code: "limit", agent: runningAgent.id });
+        const fallback = await pickFlowFallback(runningAgent);
+        if (fallback) {
+          log.warn(`${runningAgent.title} hit its usage limit.`);
+          const partial = await diffAgainst(root, config, stepStart);
+          if (partial.length > 0) {
+            await restoreTo(root, stepStart, partial);
+            log.dim(`  Rolled back ${partial.length} partial change(s) so ${fallback.title} starts clean.`);
+          }
+          log.info(`${pc.cyan("↻")} Step ${i + 1} continuing with ${pc.bold(fallback.title)} — same task, same context.`);
+          runningAgent = fallback;
+          const wave2 = pixelWave(`${runningAgent.title} is working…`);
+          try {
+            const r2 = await runAgent(runningAgent, root, prompt, () => wave2.stop(), false, mode);
+            wave2.stop();
+            text = r2.text;
+          } catch (err2) {
+            wave2.stop();
+            if (err2 instanceof AgentLimitError) await recordLimit(runningAgent.id);
+            log.error(err2 instanceof Error ? err2.message : String(err2));
+            await captureOriginals();
+            await recordProgress(i);
+            log.dim(`Flow stopped at step ${i + 1}. Undo everything it changed with \`super-t revert\`.`);
+            process.exitCode = 1;
+            return;
+          }
+        } else {
+          log.error(err.message);
+          log.dim("No other agent is available to take over (installed + not in limit cooldown).");
+          await captureOriginals();
+          await recordProgress(i);
+          process.exitCode = 1;
+          return;
+        }
+      } else {
+        log.error(err instanceof Error ? err.message : String(err));
+        await captureOriginals(); // a failed step may still have written files
+        await recordProgress(i);
+        log.dim(`Flow stopped at step ${i + 1}. Undo everything it changed with \`super-t revert\`.`);
+        process.exitCode = 1;
+        return;
+      }
     }
 
     await captureOriginals(); // before any check that might restore files
@@ -286,6 +350,17 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     printSemanticSummary(new Map(changes.map((c) => [c.path, c.before])), new Map(changes.map((c) => [c.path, c.after])));
     log.info("");
     log.info(`${changes.length} file(s) changed, ${pc.green(`+${added}`)} ${pc.red(`−${removed}`)}`);
+  }
+
+  if (changes.length > 0) {
+    await secondOpinion({
+      root,
+      task: input,
+      changedFiles: changes.map((c) => c.path),
+      rulesText: (await loadRules(root)).text,
+      authorId: resolved.length === 1 ? resolved[0].agent.id : "api", // multi-agent flow: no single author
+      config,
+    });
   }
 
   await track("flow_completed", root, {
