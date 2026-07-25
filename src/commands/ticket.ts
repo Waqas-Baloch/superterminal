@@ -46,11 +46,33 @@ export async function ticketCommand(idArg: string | undefined, opts: { mode?: st
 }
 
 async function pickTicket(root: string, adapter: TrackerAdapter): Promise<TrackerTicket | null> {
-  const tickets = await adapter.listAssigned(root);
+  const where = adapter.scope === "repository" ? "in this repository" : "in your workspace";
+  let tickets = await adapter.listAssigned(root);
+
+  // An empty list has two very different causes — nothing exists, or things
+  // exist but aren't assigned to you. Saying which one saves a support round
+  // trip (and "0 results" looked identical to a broken query before this).
   if (tickets.length === 0) {
-    log.info(`No open ${adapter.title} tickets assigned to you in this repository.`);
-    return null;
+    const open = (await adapter.listOpen?.(root)) ?? [];
+    if (open.length === 0) {
+      log.info(`No open ${adapter.title} tickets ${where}.`);
+      return null;
+    }
+    log.info(`No ${adapter.title} tickets are assigned to you, but ${open.length} open ticket(s) exist ${where}.`);
+    if (!process.stdin.isTTY) return null;
+    const { show } = await prompts({
+      type: "confirm",
+      name: "show",
+      message: `Pick from all ${open.length} open ticket(s) instead?`,
+      initial: true,
+    });
+    if (!show) {
+      log.dim(`  Assign one to yourself in ${adapter.title}, then run this again.`);
+      return null;
+    }
+    tickets = open;
   }
+
   const { pick } = await prompts({
     type: "select",
     name: "pick",

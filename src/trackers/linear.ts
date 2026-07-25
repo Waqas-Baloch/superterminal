@@ -46,9 +46,13 @@ export async function linearWhoAmI(apiKey: string): Promise<string | null> {
   return d?.viewer?.displayName ?? d?.viewer?.email ?? null;
 }
 
+const OPEN_STATES = '{ type: { nin: ["completed", "canceled"] } }';
+const FIELDS = "nodes { id identifier title description url }";
+
 export const linearTracker: TrackerAdapter = {
   id: "linear",
   title: "Linear",
+  scope: "workspace", // Linear assignment is workspace-wide, not per-repo
 
   async available(): Promise<true | string> {
     return (await getLinear()) ? true : "not connected — run `super-t tracker connect`";
@@ -60,11 +64,23 @@ export const linearTracker: TrackerAdapter = {
     const d = await gql<{ issues?: { nodes?: LinearIssue[] } }>(
       cred.apiKey,
       `query Assigned($first: Int!) {
-        issues(first: $first, filter: { assignee: { isMe: { eq: true } }, state: { type: { nin: ["completed", "canceled"] } } }) {
-          nodes { id identifier title description url }
-        }
+        issues(first: $first, orderBy: updatedAt,
+               filter: { assignee: { isMe: { eq: true } }, state: ${OPEN_STATES} }) { ${FIELDS} }
       }`,
-      { first: 20 },
+      { first: 50 },
+    );
+    return (d?.issues?.nodes ?? []).map(toTicket);
+  },
+
+  async listOpen(): Promise<TrackerTicket[]> {
+    const cred = await getLinear();
+    if (!cred) return [];
+    const d = await gql<{ issues?: { nodes?: LinearIssue[] } }>(
+      cred.apiKey,
+      `query Open($first: Int!) {
+        issues(first: $first, orderBy: updatedAt, filter: { state: ${OPEN_STATES} }) { ${FIELDS} }
+      }`,
+      { first: 50 },
     );
     return (d?.issues?.nodes ?? []).map(toTicket);
   },

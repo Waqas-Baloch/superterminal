@@ -3,6 +3,9 @@ import prompts from "prompts";
 import { linearWhoAmI } from "../trackers/linear";
 import { jiraWhoAmI } from "../trackers/jira";
 import { setLinear, setJira, clearTracker, connectedTrackers, normalizeJiraSite } from "../util/credentials";
+import { loadConfig } from "../util/config";
+import { promises as fs } from "node:fs";
+import { stateDir, statePath, STATE_DIR } from "../util/paths";
 import { log } from "../util/logger";
 
 // `super-t tracker <connect|status|disconnect>` — paste-a-token setup for
@@ -10,13 +13,52 @@ import { log } from "../util/logger";
 // (a saved-but-dead token is a support ticket), input is masked, and nothing
 // secret is ever echoed back.
 
-export async function trackerCommand(action?: string): Promise<void> {
+export async function trackerCommand(action?: string, which?: string): Promise<void> {
   const verb = (action ?? "status").toLowerCase();
   if (verb === "connect") return connect();
   if (verb === "disconnect") return disconnect();
+  if (verb === "use") return use(which);
   if (verb === "status") return statusCmd();
-  log.error(`Unknown option "${action}". Use: super-t tracker <connect|status|disconnect>`);
+  log.error(`Unknown option "${action}". Use: super-t tracker <connect|use|status|disconnect>`);
   process.exitCode = 1;
+}
+
+/**
+ * Pin which tracker this project uses. Without a pin, the first usable one
+ * wins — and GitHub qualifies from ambient state (a remote + a gh login),
+ * which quietly beat a tracker the user had deliberately connected.
+ */
+async function use(which?: string): Promise<void> {
+  const name = (which ?? "").toLowerCase();
+  const valid = ["github", "linear", "jira", "auto"];
+  if (!valid.includes(name)) {
+    log.error(`Usage: super-t tracker use <github|linear|jira|auto>`);
+    log.dim("  auto = clear the pin and use the first usable tracker again.");
+    process.exitCode = 1;
+    return;
+  }
+  const root = process.cwd();
+  const file = statePath(root, "config.json");
+  let config: Record<string, unknown> = {};
+  const existing = await fs.readFile(file, "utf8").catch(() => null);
+  if (existing !== null) {
+    // A file that exists but won't parse must NOT be overwritten — that would
+    // silently discard mode, reviewer, budget, and everything else in it.
+    try {
+      config = JSON.parse(existing);
+    } catch {
+      log.error(`${STATE_DIR}/config.json isn't valid JSON — fix it first so your other settings aren't lost.`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  if (name === "auto") delete config.tracker;
+  else config.tracker = name;
+  await fs.mkdir(stateDir(root), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(config, null, 2) + "\n");
+  if (name === "auto") log.success(`Tracker pin removed — this project will use the first usable tracker again.`);
+  else log.success(`This project now uses ${name === "github" ? "GitHub Issues" : name === "linear" ? "Linear" : "Jira"} for \`super-t ticket\`.`);
+  log.dim(`  Saved in ${STATE_DIR}/config.json — commit it to share the choice with your team.`);
 }
 
 async function statusCmd(): Promise<void> {
@@ -26,7 +68,13 @@ async function statusCmd(): Promise<void> {
   log.info(`  GitHub Issues  ${pc.dim("uses your existing `gh` login — nothing to configure")}`);
   log.info(`  Linear         ${connected.includes("linear") ? pc.green("connected") : pc.dim("not connected")}`);
   log.info(`  Jira           ${connected.includes("jira") ? pc.green("connected") : pc.dim("not connected")}`);
-  log.dim("  Connect with `super-t tracker connect` · tokens stay in ~/.super-t (0600), never in a repo.");
+  const pinned = await loadConfig(process.cwd())
+    .then((c) => c.tracker)
+    .catch(() => undefined);
+  log.info("");
+  log.info(pinned ? `  This project is pinned to: ${pc.bold(pinned)}` : pc.dim("  This project: no pin — the first usable tracker wins"));
+  log.dim("  Pin one with `super-t tracker use linear` · connect with `super-t tracker connect`.");
+  log.dim("  Tokens stay in ~/.super-t (0600), never in a repo.");
 }
 
 async function connect(): Promise<void> {

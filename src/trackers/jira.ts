@@ -56,6 +56,7 @@ export async function jiraWhoAmI(cred: JiraCredentials): Promise<string | null> 
 export const jiraTracker: TrackerAdapter = {
   id: "jira",
   title: "Jira",
+  scope: "workspace",
 
   async available(): Promise<true | string> {
     return (await getJira()) ? true : "not connected — run `super-t tracker connect`";
@@ -68,6 +69,17 @@ export const jiraTracker: TrackerAdapter = {
     const d = await jiraFetch<{ issues?: JiraIssue[] }>(
       cred,
       `/rest/api/2/search?jql=${jql}&maxResults=20&fields=summary,description,labels`,
+    );
+    return (d?.issues ?? []).map((i) => toTicket(cred.site, i));
+  },
+
+  async listOpen(): Promise<TrackerTicket[]> {
+    const cred = await getJira();
+    if (!cred) return [];
+    const jql = encodeURIComponent("statusCategory != Done ORDER BY updated DESC");
+    const d = await jiraFetch<{ issues?: JiraIssue[] }>(
+      cred,
+      `/rest/api/2/search?jql=${jql}&maxResults=50&fields=summary,description,labels`,
     );
     return (d?.issues ?? []).map((i) => toTicket(cred.site, i));
   },

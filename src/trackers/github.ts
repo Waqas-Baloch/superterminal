@@ -33,6 +33,7 @@ async function gh(root: string, args: string[], input?: string): Promise<{ ok: b
 export const githubTracker: TrackerAdapter = {
   id: "github",
   title: "GitHub Issues",
+  scope: "repository", // gh issue list is scoped to the repo you're standing in
 
   async available(root: string): Promise<true | string> {
     const version = await gh(root, ["--version"]).catch(() => null);
@@ -52,6 +53,16 @@ export const githubTracker: TrackerAdapter = {
       "--limit", "20",
       "--json", "number,title,body,url,labels",
     ]);
+    if (!r.ok) return [];
+    try {
+      return (JSON.parse(r.stdout) as GhIssue[]).map(toTicket);
+    } catch {
+      return [];
+    }
+  },
+
+  async listOpen(root: string): Promise<TrackerTicket[]> {
+    const r = await gh(root, ["issue", "list", "--state", "open", "--limit", "50", "--json", "number,title,body,url,labels"]);
     if (!r.ok) return [];
     try {
       return (JSON.parse(r.stdout) as GhIssue[]).map(toTicket);

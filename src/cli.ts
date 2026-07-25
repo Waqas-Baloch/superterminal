@@ -110,7 +110,8 @@ program
 
 program
   .command("tracker")
-  .argument("[action]", "connect | status | disconnect")
+  .argument("[action]", "connect | use | status | disconnect")
+  .argument("[which]", "for `use`: github | linear | jira | auto")
   .description("connect Linear or Jira for `super-t ticket` (GitHub needs no setup — it uses `gh`)")
   .action(trackerCommand);
 

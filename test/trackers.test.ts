@@ -92,3 +92,68 @@ describe("resolveTracker — clear reasons, honored preference", () => {
     expect("adapter" in r && r.adapter.id).toBe("linear");
   });
 });
+
+describe("tracker use — pinning a project's tracker", () => {
+  let dir: string;
+  let cwd: string;
+  beforeEach(async () => {
+    cwd = process.cwd();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "st-pin-"));
+    process.chdir(dir);
+  });
+  afterEach(async () => {
+    process.chdir(cwd);
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  const readConfig = async (): Promise<Record<string, unknown>> =>
+    JSON.parse(await fs.readFile(path.join(dir, ".super-t", "config.json"), "utf8"));
+
+  it("writes the pin, creating the state dir", async () => {
+    const { trackerCommand } = await import("../src/commands/tracker");
+    await trackerCommand("use", "linear");
+    expect((await readConfig()).tracker).toBe("linear");
+  });
+
+  it("preserves every other setting in the config", async () => {
+    await fs.mkdir(path.join(dir, ".super-t"), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, ".super-t", "config.json"),
+      JSON.stringify({ mode: "safe", reviewer: "codex", budgetTokens: 12345 }),
+    );
+    const { trackerCommand } = await import("../src/commands/tracker");
+    await trackerCommand("use", "jira");
+    const c = await readConfig();
+    expect(c).toMatchObject({ mode: "safe", reviewer: "codex", budgetTokens: 12345, tracker: "jira" });
+  });
+
+  it("`auto` clears the pin without touching other settings", async () => {
+    const { trackerCommand } = await import("../src/commands/tracker");
+    await trackerCommand("use", "linear");
+    await trackerCommand("use", "auto");
+    expect(await readConfig()).not.toHaveProperty("tracker");
+  });
+
+  it("refuses to overwrite a malformed config — other settings must survive", async () => {
+    await fs.mkdir(path.join(dir, ".super-t"), { recursive: true });
+    const broken = '{ "mode": "safe", oops';
+    await fs.writeFile(path.join(dir, ".super-t", "config.json"), broken);
+    const { trackerCommand } = await import("../src/commands/tracker");
+    await trackerCommand("use", "linear");
+    expect(await fs.readFile(path.join(dir, ".super-t", "config.json"), "utf8")).toBe(broken);
+  });
+
+  it("rejects an unknown tracker name", async () => {
+    const { trackerCommand } = await import("../src/commands/tracker");
+    await trackerCommand("use", "notion");
+    await expect(fs.access(path.join(dir, ".super-t", "config.json"))).rejects.toThrow();
+  });
+});
+
+describe("adapter scope — wording must match where assignment lives", () => {
+  it("GitHub is per-repository; Linear and Jira are workspace-wide", async () => {
+    const { TRACKERS } = await import("../src/trackers");
+    const byId = Object.fromEntries(TRACKERS.map((t) => [t.id, t.scope]));
+    expect(byId).toEqual({ github: "repository", linear: "workspace", jira: "workspace" });
+  });
+});
