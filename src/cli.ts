@@ -11,6 +11,7 @@ import { telemetryCommand } from "./commands/telemetry";
 import { doctorCommand } from "./commands/doctor";
 import { resumeCommand } from "./commands/resume";
 import { skillsCommand } from "./commands/skillsCmd";
+import { ticketCommand } from "./commands/ticket";
 import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
@@ -98,6 +99,13 @@ program
   .argument("[action]", "on | off | status")
   .description("show or change anonymous usage counting")
   .action(telemetryCommand);
+
+program
+  .command("ticket")
+  .argument("[id]", "ticket id (e.g. 142 or #142); omit to pick from tickets assigned to you")
+  .option("--mode <mode>", "safety dial: safe | standard | full")
+  .description("implement a tracker ticket end to end — gated, cross-vendor-verified, summary posted back with your approval")
+  .action(ticketCommand);
 
 program
   .command("doctor")

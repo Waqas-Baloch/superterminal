@@ -52,6 +52,7 @@ export async function generateManifest(opts: {
   selection: Selection;
   focus?: boolean; // default true — send task-relevant excerpts for large files
   sessionNote?: string; // follow-up context from the previous task in this session
+  ticketSection?: string; // pre-fenced ticket data (rendered by trackers/ticketText — protocol T2)
 }): Promise<string> {
   const { root, task, selection } = opts;
   const focusOn = opts.focus !== false;
@@ -61,6 +62,9 @@ export async function generateManifest(opts: {
   parts.push("# Repo context manifest");
   parts.push(`## Task\n${task}`);
   parts.push(APPLY_GUIDANCE);
+  // Ticket data (already fenced with non-instruction framing) sits right after
+  // the task it specifies.
+  if (opts.ticketSection) parts.push(opts.ticketSection);
   // Project context first — what this project *is* — then the rules that
   // constrain the work. Both go to every agent.
   const contextSection = renderContextSection(await loadContext(root));

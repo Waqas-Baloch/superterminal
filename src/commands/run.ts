@@ -17,6 +17,8 @@ import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { secondOpinion } from "../core/review";
 import { parseCriteria } from "../core/criteria";
+import { buildTicketTask, renderTicketSection, ticketCriteria } from "../trackers/ticketText";
+import type { TrackerTicket } from "../trackers/types";
 import { loadContext } from "../core/rules";
 import { writeRunReport } from "../report/runReport";
 import { generateManifest, generateScaffoldManifest } from "../core/manifest";
@@ -67,9 +69,11 @@ interface RunOptions {
   surgical?: boolean; // experimental: restrict the agent to a direct edit, no exploration
   mode?: string; // safety dial: safe | standard | full (default from config)
   agent?: string; // override the connected agent for this invocation (resume --with)
+  ticket?: TrackerTicket; // the run implements this ticket (body is fenced, never the task)
 }
 
 interface ExecContext {
+  ticket?: TrackerTicket;
   root: string;
   auth: Auth;
   config: ProjectConfig;
@@ -98,10 +102,12 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   }
 
   const config = await loadConfig(root);
+  if (opts.ticket && !taskArg) taskArg = buildTicketTask(opts.ticket); // title-derived, never the body
   if (opts.agent && (opts.agent === "claude-code" || opts.agent === "cursor" || opts.agent === "codex")) {
     auth = { mode: "agent-cli", agent: opts.agent, source: `--with ${opts.agent}` };
   }
   const ctx: ExecContext = {
+    ticket: opts.ticket,
     root,
     auth,
     config,
@@ -111,8 +117,9 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
   };
 
   // Scripts/CI (--yes or piped input) stay single-shot; interactive terminals
-  // get a persistent session that keeps taking tasks until /exit
-  const sessionMode = Boolean(process.stdin.isTTY) && opts.yes !== true;
+  // get a persistent session that keeps taking tasks until /exit. A ticket run
+  // is single-shot too — control must return to the caller for the post-back.
+  const sessionMode = Boolean(process.stdin.isTTY) && opts.yes !== true && !opts.ticket;
   if (!sessionMode) {
     if (!taskArg) {
       log.error('No task given. Usage: super-t run "add a checkout form"');
@@ -151,6 +158,12 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
     } else if (cmd.type === "search") {
       const picked = await pickProject();
       if (picked) await retargetRoot(ctx, picked);
+    } else if (cmd.type === "ticket") {
+      try {
+        await (await import("./ticket")).ticketCommand(cmd.id || undefined, {});
+      } catch (err) {
+        log.error(err instanceof Error ? err.message : String(err));
+      }
     } else if (cmd.type === "doctor") {
       await (await import("./doctor")).doctorCommand();
     } else if (cmd.type === "help") {
@@ -199,6 +212,7 @@ type SessionCommand =
   | { type: "connect" }
   | { type: "search" }
   | { type: "doctor" }
+  | { type: "ticket"; id: string }
   | { type: "help" }
   | { type: "clear" }
   | { type: "menu" } // bare "/" or an unknown /command → show the command picker
@@ -212,7 +226,7 @@ type SessionCommand =
  */
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|doctor|help|clear|cls)\b\s*(.*)$/i);
+  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|ticket|doctor|help|clear|cls)\b\s*(.*)$/i);
   if (m) {
     const name = m[1].toLowerCase();
     // People naturally type `super-t flow "…"` inside the session — drop the
@@ -220,6 +234,7 @@ export function interpret(input: string): SessionCommand {
     const rest = m[2].trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
     const nav = navCommand(name);
     if (nav) return nav;
+    if (name === "ticket") return { type: "ticket", id: rest };
     if (name === "flow") {
       return rest
         ? { type: "flow", steps: rest }
@@ -257,6 +272,7 @@ const MENU: SlashCommand[] = [
   { value: "plan", title: "/plan", description: "preview a task — don't send it", arg: true },
   { value: "flow", title: "/flow", description: "multi-step task across agents", arg: true },
   { value: "compare", title: "/compare", description: "same task through every agent", arg: true },
+  { value: "ticket", title: "/ticket", description: "pick an assigned ticket and implement it, verified" },
   { value: "doctor", title: "/doctor", description: "check agents, connection, and project state" },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
@@ -501,7 +517,9 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   // Advisory — printed, never auto-reverted.
   if (outcome && outcome.touched.length > 0) {
     const rulesText = (await loadRules(root)).text;
-    const criteria = parseCriteria([finalTask, (await loadContext(root)).text, rulesText].join("\n"));
+    const ticketAc = ctx.ticket ? ticketCriteria(ctx.ticket) : [];
+    const criteria =
+      ticketAc.length > 0 ? ticketAc : parseCriteria([finalTask, (await loadContext(root)).text, rulesText].join("\n"));
     const authorTitle = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : "API";
     const verdict = await secondOpinion({
       root,
@@ -552,7 +570,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   }
 
   await track("task_completed", root, {
-    command: "run",
+    command: ctx.ticket ? "ticket" : "run",
     agent: auth.mode === "agent-cli" ? auth.agent : "api",
     outcome: outcome ? "applied" : "cancelled",
     files: outcome ? outcome.touched.length : 0,

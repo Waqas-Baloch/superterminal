@@ -41,7 +41,7 @@ export type TelemetryEvent =
  */
 const FIELDS: Record<string, "number" | "boolean" | "version" | readonly string[]> = {
   agent: ["claude-code", "cursor", "codex", "api", "api-key", "oauth"],
-  command: ["run", "flow", "compare", "plan"],
+  command: ["run", "flow", "compare", "plan", "ticket"],
   outcome: ["applied", "reverted", "cancelled", "failed"],
   band: ["green", "yellow", "orange", "red"],
   code: ["no_auth", "agent_missing", "agent_error", "parse_failed", "timeout", "no_steps", "blocked", "limit"],
