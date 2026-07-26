@@ -1,4 +1,21 @@
 node_modules/
 dist/
-.glint/
 *.log
+
+# macOS finder junk
+.DS_Store
+
+# Super Terminal's own state. Shared standards (rules, context, skills,
+# team.json, config.json) ARE committed; local run state is not — see
+# .super-t/.gitignore, which the CLI writes for every project.
+.super-t/backup/
+.super-t/reports/
+.super-t/flow/
+.super-t/wt/
+.super-t/index.json
+.super-t/intent.json
+.super-t/session.json
+
+# Directories from earlier names of this project. Nothing reads them.
+.glint/
+.squash/

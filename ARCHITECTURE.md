@@ -1,101 +1,60 @@
-# Glint — MVP Architecture (v1)
+# Super Terminal — architecture
 
-Local-first CLI that compresses a TS/JS repo into a task-specific manifest, runs a Claude edit loop against it, validates locally, and reports a diff.
+A local-first CLI that sits between a developer and whichever AI coding agent
+they use. It has no model of its own: it prepares the work, routes it to an
+agent, then verifies what came back.
 
-## Pipeline
-
-```
-glint run "add checkout form"
-   │
-   ▼
-[1] indexer    scan repo (fast-glob + .gitignore), file metadata, hashes → .glint/index.json
-   ▼
-[2] mapper     ts-morph: imports/exports, exported symbols per file → dependency graph
-   ▼
-[3] selector   score files vs task (BM25 over paths/symbols/content + 1-hop graph expansion
-               + boosts for routes/schemas/configs) → ranked set under token budget
-   ▼
-[4] manifest   dense Markdown: project facts, selected-file tree, full text of primary files,
-               signatures-only for secondary files, schemas, the task → single string
-   ▼
-   confirm     show selected files + token estimate, ask y/N (skip with --yes)
-   ▼
-[5] runner     Claude tool loop (@anthropic-ai/sdk toolRunner): read_file / str_replace /
-               write_file tools, edits staged then applied; originals backed up to .glint/backup
-   ▼
-[6] validator  tsc --noEmit → eslint → npm test (each only if configured); on failure,
-               feed error tail back to runner, max 2 repair iterations
-   ▼
-[7] reporter   unified diff per touched file, file list, token usage + cost
-```
-
-`glint plan "<task>"` runs [1]–[4] only and prints the manifest + estimate (dry run).
-`glint revert` restores `.glint/backup` from the last run.
-
-## Folder structure
+## The path a task takes
 
 ```
-glint/
-├── src/
-│   ├── cli.ts               # commander entry, flags: --budget --model --yes --no-validate
-│   ├── commands/
-│   │   ├── run.ts
-│   │   ├── plan.ts
-│   │   └── revert.ts
-│   ├── core/
-│   │   ├── indexer.ts       # scan, hash, cache to .glint/index.json
-│   │   ├── mapper.ts        # ts-morph import graph + exported symbols
-│   │   ├── selector.ts      # minisearch BM25 + graph expansion + heuristic boosts
-│   │   └── manifest.ts      # markdown generation under token budget
-│   ├── claude/
-│   │   ├── runner.ts        # SDK tool-runner loop, streaming, prompt caching
-│   │   ├── tools.ts         # betaZodTool defs: read_file, str_replace, write_file
-│   │   └── prompts.ts       # system prompt (frozen, cache_control on last block)
-│   ├── validate/
-│   │   └── validator.ts     # execa: tsc / eslint / test, capture error tails
-│   ├── report/
-│   │   └── diff.ts          # `diff` package rendering + touched-file summary
-│   └── util/
-│       ├── tokens.ts        # chars/4 estimate; count_tokens API for final check
-│       ├── config.ts        # .glintrc.json (model, budget, ignore extras)
-│       └── logger.ts
-├── package.json             # bin: { "glint": "dist/cli.js" }
-├── tsconfig.json
-└── tsup.config.ts
+task (typed, or from a ticket)
+  → trust        first contact with a repo: name its instruction files, ask once
+  → index/map    scan the repo, build a symbol + element graph
+  → select       rank and pick the smallest complete slice of context
+  → gate         4-band classification, target preflight, clarification
+  → manifest     task + rules + context + skills + fenced ticket data + code
+  → agent        Claude Code / Cursor / Codex, or the Anthropic API
+  → verify       protected paths, edit scope, acceptance criteria
+  → review       a DIFFERENT vendor's agent checks the diff, read-only
+  → report       PM-readable summary; backup for one-command revert
 ```
 
-## Key decisions
+## Layout
 
-**Relevance (matters most).** Hybrid lexical + structural, no embeddings in MVP:
-1. Tokenize the task into terms (`checkout`, `form`) + expansions (`cart`, `payment` via a small synonym map for common web-app domains).
-2. BM25 (minisearch) over an index of: file path segments, exported symbol names, and content.
-3. Expand the top hits 1 hop along the import graph (a component's hooks/types/api client come along).
-4. Static boosts: `package.json`, `tsconfig`, Next.js route files touching matched terms, `schema.prisma`, zod schemas, tailwind/theme config.
-5. Greedy fill under the token budget (default 30k tokens): top files get full text, next tier gets ts-morph–extracted signatures only, rest is just tree entries.
+| Path | Responsibility |
+|---|---|
+| `src/cli.ts` | Command registration (commander) |
+| `src/commands/` | One file per command — run, flow, compare, ticket, team, review… |
+| `src/core/` | The thinking: selection, ranking, gate, clarify, criteria, review, trust, team |
+| `src/core/semantic/` | parse5 (HTML/DOM) + ts-morph (JSX/TS) → element and symbol graph |
+| `src/claude/` | Agent adapters: one JSONL event parser, per-vendor argv and safety modes |
+| `src/trackers/` | GitHub / Linear / Jira adapters behind one interface |
+| `src/report/` | Terminal UI — banner, spinner, diff, session input, run report |
+| `src/util/` | Paths, config, credentials, limits, telemetry |
 
-**Claude runner.** `@anthropic-ai/sdk` beta tool runner, model `claude-opus-4-8`, `thinking: {type:"adaptive"}`, streaming. Manifest goes in the first user message; the frozen system prompt carries `cache_control: {type:"ephemeral"}` so repair iterations hit the prompt cache. Tools are the safety boundary:
-- `read_file(path)` — any repo file (escape-proof: resolve + verify inside repo root)
-- `str_replace(path, old, new)` / `write_file(path, content)` — staged in memory, applied only after the turn ends; every touched original copied to `.glint/backup/<run-id>/` first
-- No bash tool. No network tools. Claude can only read and propose edits.
+## Decisions worth knowing
 
-**Safe edit loop.** Apply staged edits → run validators → if red, send only the error tail (last ~100 lines) back as a follow-up message on the same conversation (cache hit) → max 2 repairs → if still red, keep edits but exit non-zero with the failure shown. `glint revert` always available; if the repo is git, we also print `git checkout -- <files>` hints.
+**Local-first, no server.** Code, rules and credentials stay on the machine.
+The team layer uses Git for sync and GitHub for approval (CODEOWNERS + branch
+protection) rather than a service, because a protected branch genuinely blocks
+an unauthorized merge while a check inside a CLI can be edited out of a fork.
 
-**Validators.** Detected, never assumed: `tsc --noEmit` if tsconfig.json exists, `eslint` if an eslint config exists, `npm test` only if the script exists and isn't the npm placeholder. Run via execa with a 3-minute timeout each.
+**Verification happens outside the model.** Protected-path and edit-scope
+checks are deterministic code, not a prompt. Asking a model to police itself is
+not a control.
 
-## Packages
+**Untrusted text is fenced, never promoted to instructions.** Ticket bodies and
+mentioned files enter the manifest as data with explicit framing; a task string
+is derived from a ticket's title only.
 
-| Purpose | Package | Why |
-|---|---|---|
-| CLI framework | `commander` | boring, tiny |
-| Repo scan | `fast-glob` + `ignore` | .gitignore-correct scanning |
-| Symbols/graph | `ts-morph` | one lib for imports, exports, signatures |
-| Lexical scoring | `minisearch` | in-memory BM25, zero infra |
-| Claude | `@anthropic-ai/sdk` | tool runner, streaming, caching |
-| Tool schemas/config | `zod` | also required by betaZodTool |
-| Subprocesses | `execa` | validator runner |
-| Diff rendering | `diff` | works without git |
-| UX | `picocolors`, `ora`, `prompts` | color, spinner, y/N confirm |
-| Build/test | `tsup`, `vitest` | fast, standard |
+**State is split.** `.super-t/` holds shared standards that belong in the repo
+(rules, context, skills, `team.json`, `config.json`) and local run state that
+does not (backups, reports, flow output, caches). The CLI writes
+`.super-t/.gitignore` so nobody has to remember which is which. Credentials
+live in `~/.super-t/` at 0600, never in a repository.
 
-## Out of scope for v1
-Embeddings, watch mode, multi-repo, IDE integration, auto-commit/merge, non-TS languages, cloud anything.
+**Everything is reversible.** Every run backs up what it touches before editing,
+so `super-t revert` restores a run — or an entire multi-step flow.
+
+See [docs/security-protocols.md](docs/security-protocols.md) for the threat
+model and the gates each roadmap phase must pass.

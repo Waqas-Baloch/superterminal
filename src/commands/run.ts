@@ -57,7 +57,7 @@ import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { track, firstRunNotice } from "../util/telemetry";
 import { printSelection, printSemanticSummary } from "./shared";
-import { stateDir } from "../util/paths";
+import { stateDir, ensureStateDir } from "../util/paths";
 
 const MAX_REPAIRS = 2;
 
@@ -789,6 +789,7 @@ async function runViaApi(
 
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   await stage.apply(runId);
+  await ensureStateDir(root); // writes .super-t/.gitignore on first use
   const backupFilesDir = nodePath.join(stateDir(root), "backup", runId, "files");
 
   let validationFailed = false;

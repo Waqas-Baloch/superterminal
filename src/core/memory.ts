@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
-import { stateDir } from "../util/paths";
+import { stateDir, ensureStateDir } from "../util/paths";
 
 // Repo memory: Super Terminal learns your disambiguation answers so it stops asking the
 // same question. When you say "the nav one" for a duplicate "Try Now", that
@@ -46,7 +46,7 @@ export async function rememberChoice(root: string, choice: Omit<IntentChoice, "u
   const intents = (await loadIntents(root)).filter((c) => c.phrase !== phrase); // replace any prior answer
   intents.unshift({ ...choice, phrase, updatedAt: new Date().toISOString() });
   const store: Store = { version: 1, choices: intents.slice(0, MAX_CHOICES) };
-  await fs.mkdir(nodePath.dirname(file(root)), { recursive: true });
+  await ensureStateDir(root);
   await fs.writeFile(file(root), JSON.stringify(store, null, 2));
 }
 

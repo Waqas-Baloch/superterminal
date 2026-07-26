@@ -3,7 +3,7 @@ import nodePath from "node:path";
 import pc from "picocolors";
 import { loadRules } from "../core/rules";
 import { log } from "../util/logger";
-import { stateDir, STATE_DIR } from "../util/paths";
+import { stateDir, STATE_DIR, ensureStateDir } from "../util/paths";
 
 // Directories that usually hold generated/vendored output — worth protecting
 // by default so an agent regenerates from source instead of hand-editing them.
@@ -17,6 +17,7 @@ const CANDIDATE_GENERATED = ["dist", "build", "generated", ".next", "out", "cove
  */
 export async function initCommand(): Promise<void> {
   const root = process.cwd();
+  await ensureStateDir(root);
   const rulesPath = nodePath.join(stateDir(root), "rules.md");
 
   // Rule files already applied across every agent.

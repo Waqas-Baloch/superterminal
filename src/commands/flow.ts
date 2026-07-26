@@ -33,7 +33,7 @@ import { resolveAuth } from "../util/globalConfig";
 import { pixelWave } from "../report/spinner";
 import { log } from "../util/logger";
 import { track } from "../util/telemetry";
-import { stateDir, statePath } from "../util/paths";
+import { stateDir, statePath, ensureStateDir } from "../util/paths";
 
 // `super-t flow` — one command, several steps, each routed to the agent you named,
 // with outputs passed forward. The neutral layer's payoff: no vendor will run a
@@ -166,6 +166,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   // One backup for the entire flow, captured incrementally as steps touch
   // files. Without this `revert` had nothing to restore after a flow — the
   // command most likely to need undoing was the one that couldn't be undone.
+  await ensureStateDir(root); // writes .super-t/.gitignore on first use
   const backupDir = nodePath.join(stateDir(root), "backup", runId);
   const backedUp = new Set<string>();
   const created = new Set<string>();

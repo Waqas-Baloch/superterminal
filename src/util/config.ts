@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { statePath, stateDir, STATE_DIR } from "./paths";
+import { statePath, STATE_DIR, ensureStateDir } from "./paths";
 
 const configSchema = z.object({
   model: z.string().default("claude-opus-4-8"),
@@ -44,7 +44,7 @@ export async function updateProjectConfig(
     }
   }
   mutate(config);
-  await fs.mkdir(stateDir(root), { recursive: true });
+  await ensureStateDir(root);
   await fs.writeFile(file, JSON.stringify(config, null, 2) + "\n");
   return { ok: true };
 }

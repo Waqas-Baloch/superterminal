@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import nodePath from "node:path";
-import { stateDir } from "../util/paths";
+import { stateDir, ensureStateDir } from "../util/paths";
 import type { CriterionVerdict } from "../core/criteria";
 import { statusMark } from "../core/criteria";
 
@@ -82,6 +82,7 @@ export function renderRunReport(input: RunReportInput): string {
 export async function writeRunReport(root: string, input: RunReportInput): Promise<string | null> {
   try {
     const id = new Date().toISOString().replace(/[:.]/g, "-");
+    await ensureStateDir(root);
     const dir = nodePath.join(stateDir(root), "reports");
     await fs.mkdir(dir, { recursive: true });
     const file = nodePath.join(dir, `${id}.md`);

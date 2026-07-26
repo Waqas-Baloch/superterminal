@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import { execa } from "execa";
 import { z } from "zod";
-import { statePath, stateDir, STATE_DIR } from "../util/paths";
+import { statePath, stateDir, STATE_DIR, ensureStateDir } from "../util/paths";
 
 // The team layer. Git and GitHub ARE the backend: the standards registry is
 // files in the repo, "sync to every member" is `git pull`, and "ask permission
@@ -62,7 +62,7 @@ export async function loadTeam(root: string): Promise<Team | null> {
 }
 
 export async function saveTeam(root: string, team: Team): Promise<void> {
-  await fs.mkdir(stateDir(root), { recursive: true });
+  await ensureStateDir(root);
   await fs.writeFile(teamFile(root), JSON.stringify(team, null, 2) + "\n");
 }
 
