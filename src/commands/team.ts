@@ -4,6 +4,7 @@ import { execa } from "execa";
 import {
   loadTeam,
   saveTeam,
+  lookupGitHubUser,
   currentGitHubUser,
   isAdmin,
   localGovernedChanges,
@@ -27,7 +28,8 @@ export async function teamCommand(action?: string, arg?: string): Promise<void> 
   if (verb === "status") return status(root);
   if (verb === "invite") return invite(root, arg);
   if (verb === "propose") return propose(root, arg);
-  log.error(`Unknown option "${action}". Use: super-t team <init|status|invite|propose>`);
+  if (verb === "remove") return remove(root, arg);
+  log.error(`Unknown option "${action}". Use: super-t team <init|status|invite|remove|propose>`);
   process.exitCode = 1;
 }
 
@@ -73,7 +75,8 @@ async function init(root: string): Promise<void> {
   log.dim("    Settings → Branches → Add rule → Require a pull request + Require review from Code Owners");
   log.dim("  Without that, Super Terminal can only warn — GitHub is what can actually block a merge.");
   log.info("");
-  log.dim(`  Beta: teams up to ${BETA_MAX_MEMBERS} members, free. Invite with \`super-t team invite <github-username>\`.`);
+  log.dim(`  Beta: teams up to ${BETA_MAX_MEMBERS} members, free.`);
+  log.dim("  Invite someone with their GitHub username, e.g. `super-t team invite octocat`.");
 }
 
 async function status(root: string): Promise<void> {
@@ -132,7 +135,9 @@ async function invite(root: string, username?: string): Promise<void> {
   }
   const name = (username ?? "").trim();
   if (!validUsername(name)) {
-    log.error("Usage: super-t team invite <github-username>");
+    log.error("Usage: super-t team invite THEIR-GITHUB-USERNAME");
+    log.dim("  For example: super-t team invite octocat");
+    log.dim("  No angle brackets — your shell treats < and > as file redirection.");
     process.exitCode = 1;
     return;
   }
@@ -146,15 +151,34 @@ async function invite(root: string, username?: string): Promise<void> {
     return;
   }
 
+  // Resolve the username to an actual person FIRST. Confirming a bare string
+  // is how a placeholder from the docs ended up holding write access to a real
+  // repository — the name looked fine, and nobody had to look at whose it was.
+  const person = await lookupGitHubUser(root, name);
+  if (!person) {
+    log.error(`No GitHub user called "${name}".`);
+    log.dim("  Check the spelling — this is their GitHub username, not their display name or email.");
+    process.exitCode = 1;
+    return;
+  }
+
   const repo = await repoSlug(root);
   log.info("");
-  log.info(`This will invite ${pc.bold(name)} to the team${repo ? ` and give them push access to ${repo}` : ""}.`);
+  log.info(`  ${pc.bold(person.login)}${person.name ? ` — ${person.name}` : ""}`);
+  log.dim(`  ${person.url}`);
+  log.info("");
+  log.warn(`This gives that person push access to ${repo ?? "this repository"}. Make sure it is who you mean.`);
   if (!process.stdin.isTTY) {
     log.error("Inviting grants access to your repository — run this in a terminal so it can be confirmed.");
     process.exitCode = 1;
     return;
   }
-  const { go } = await prompts({ type: "confirm", name: "go", message: "Send the invitation?", initial: false });
+  const { go } = await prompts({
+    type: "confirm",
+    name: "go",
+    message: `Invite ${person.login}${person.name ? ` (${person.name})` : ""}?`,
+    initial: false,
+  });
   if (!go) {
     log.info("Cancelled — no invitation sent, nothing changed.");
     return;
@@ -162,7 +186,7 @@ async function invite(root: string, username?: string): Promise<void> {
 
   let granted = false;
   if (repo) {
-    const r = await execa("gh", ["api", "--method", "PUT", `repos/${repo}/collaborators/${name}`, "-f", "permission=push"], {
+    const r = await execa("gh", ["api", "--method", "PUT", `repos/${repo}/collaborators/${person.login}`, "-f", "permission=push"], {
       cwd: root,
       reject: false,
       timeout: 20_000,
@@ -171,9 +195,9 @@ async function invite(root: string, username?: string): Promise<void> {
     if (!granted) log.warn(`  Couldn't grant repository access (you may not be a repo admin) — adding them to the team anyway.`);
   }
 
-  team.members.push(name);
+  team.members.push(person.login); // canonical casing from GitHub
   await saveTeam(root, team);
-  log.success(`${name} added to the team${granted ? " and invited to the repository" : ""}.`);
+  log.success(`${person.login} added to the team${granted ? " and invited to the repository" : ""}.`);
   log.dim(`  Commit ${STATE_DIR}/team.json so the rest of the team sees them too.`);
   log.dim(`  They run: npm i -g super-t && super-t team status`);
 }
@@ -257,6 +281,80 @@ async function propose(root: string, message?: string): Promise<void> {
     log.warn("Pushed the branch, but couldn't open the pull request automatically.");
     log.dim(`  Open it manually for branch: ${branch}`);
   }
+}
+
+/**
+ * Take someone off the team, and off the repository. Mistakes must be fixable
+ * inside the product: an invite that went to the wrong person previously needed
+ * hand-edited JSON and a trip to GitHub's settings.
+ */
+async function remove(root: string, username?: string): Promise<void> {
+  const team = await loadTeam(root);
+  if (!team) {
+    log.error("No team yet — nothing to remove from.");
+    process.exitCode = 1;
+    return;
+  }
+  const me = await requireGitHub(root);
+  if (!me) return;
+  if (!isAdmin(team, me)) {
+    log.error(`Only an admin can remove members. Admins: ${team.admins.join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+  const name = (username ?? "").trim();
+  const match = team.members.find((m) => m.toLowerCase() === name.toLowerCase());
+  if (!match) {
+    log.error(`"${name || "(nobody)"}" isn't on this team.`);
+    log.dim(`  Current members: ${team.members.join(", ")}`);
+    log.dim("  Usage: super-t team remove THEIR-GITHUB-USERNAME");
+    process.exitCode = 1;
+    return;
+  }
+  if (team.admins.some((a) => a.toLowerCase() === match.toLowerCase()) && team.admins.length === 1) {
+    log.error(`${match} is the only admin — removing them would leave nobody able to approve standards.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const repo = await repoSlug(root);
+  log.info("");
+  log.info(`This removes ${pc.bold(match)} from the team${repo ? `, and revokes their access to ${repo}` : ""}.`);
+  if (process.stdin.isTTY) {
+    const { go } = await prompts({ type: "confirm", name: "go", message: `Remove ${match}?`, initial: false });
+    if (!go) {
+      log.info("Cancelled — nothing changed.");
+      return;
+    }
+  }
+
+  // Revoke a pending invitation as well as accepted access — an unaccepted
+  // invite still grants the moment they click it.
+  if (repo) {
+    const inv = await execa(
+      "gh",
+      ["api", `repos/${repo}/invitations`, "--jq", `.[] | select(.invitee.login=="${match}") | .id`],
+      { cwd: root, reject: false, timeout: 20_000 },
+    ).catch(() => null);
+    const id = inv?.exitCode === 0 ? inv.stdout.trim() : "";
+    if (/^\d+$/.test(id)) {
+      await execa("gh", ["api", "-X", "DELETE", `repos/${repo}/invitations/${id}`], { cwd: root, reject: false, timeout: 20_000 }).catch(() => null);
+      log.dim("  Pending invitation revoked.");
+    }
+    const collab = await execa("gh", ["api", "-X", "DELETE", `repos/${repo}/collaborators/${match}`], {
+      cwd: root,
+      reject: false,
+      timeout: 20_000,
+    }).catch(() => null);
+    if (collab?.exitCode === 0) log.dim("  Repository access removed.");
+  }
+
+  team.members = team.members.filter((m) => m.toLowerCase() !== match.toLowerCase());
+  team.admins = team.admins.filter((a) => a.toLowerCase() !== match.toLowerCase());
+  await saveTeam(root, team);
+  await writeCodeowners(root, team); // CODEOWNERS must not keep naming them
+  log.success(`${match} removed from the team.`);
+  log.dim(`  Commit ${STATE_DIR}/team.json and .github/CODEOWNERS so the change reaches everyone.`);
 }
 
 async function repoSlug(root: string): Promise<string | null> {

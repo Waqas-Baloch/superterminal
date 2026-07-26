@@ -84,9 +84,9 @@ super-t revert           # restore the last run
 | `super-t doctor` | Check agents, connection, trackers, and project state |
 | `super-t skills sync` | One skill set for every agent — materialize to native formats |
 | `super-t team init` | Shared standards with admin approval (Git + GitHub, no server) |
-| `super-t team invite <user>` | Invite a developer by GitHub username (beta: up to 5) |
+| `super-t team invite octocat` | Invite a developer by their GitHub username (beta: up to 5) |
 | `super-t team propose "why"` | Send your standards change for admin approval as a pull request |
-| `super-t feedback <user>` | Ask a person to review your last run — arrives as a GitHub issue |
+| `super-t feedback octocat` | Ask a person to review your last run — arrives as a GitHub issue |
 | `super-t review codex --always` | A different vendor checks every change, in every project |
 | `super-t connect` | One-time setup — pick your agent |
 | `super-t switch` | Change the active agent |
@@ -101,7 +101,7 @@ Standards live in your repository, so Git is the sync layer and GitHub is the ap
 
 ```sh
 super-t team init                    # you become admin; writes .github/CODEOWNERS
-super-t team invite some-developer   # by GitHub username
+super-t team invite octocat          # their real GitHub username
 super-t team status                  # who's admin, and whether your standards are current
 ```
 

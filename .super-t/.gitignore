@@ -1,0 +1,11 @@
+# Written by Super Terminal. Local run state — not for the repo.
+backup/
+reports/
+flow/
+wt/
+index.json
+intent.json
+session.json
+
+# Shared standards ARE committed: rules.md, context.md, product.md,
+# skills/, team.json, config.json — they are not listed above.

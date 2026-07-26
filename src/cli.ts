@@ -127,7 +127,7 @@ program
 
 program
   .command("team")
-  .argument("[action]", "init | status | invite | propose")
+  .argument("[action]", "init | status | invite | remove | propose")
   .argument("[value]", "for invite: a GitHub username · for propose: a short summary")
   .description("shared standards with admin approval, over Git and GitHub")
   .action(teamCommand);

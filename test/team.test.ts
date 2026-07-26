@@ -133,3 +133,30 @@ describe("localGovernedChanges — the guardrail's evidence", () => {
     expect(await localGovernedChanges(dir, team())).toEqual([]);
   });
 });
+
+describe("invite safety: a username is a person, not a string", () => {
+  it("keeps admin-removal from orphaning a team", () => {
+    // Removing the only admin would leave nobody able to approve standards.
+    const t = team({ admins: ["alice"], members: ["alice", "bob"] });
+    expect(t.admins).toHaveLength(1);
+    expect(isAdmin(t, "alice")).toBe(true);
+  });
+
+  it("rejects a name that isn't a valid GitHub login before any lookup", async () => {
+    const { lookupGitHubUser } = await import("../src/core/team");
+    // No network call should even be attempted for these.
+    for (const bad of ["--repo", "a b", "../x", "-alice", ""]) {
+      expect(await lookupGitHubUser(process.cwd(), bad), bad).toBeNull();
+    }
+  });
+});
+
+describe("CODEOWNERS drops a removed admin", () => {
+  it("stops naming someone once they're off the team", () => {
+    const before = codeownersFor(team({ admins: ["alice", "bob"] }));
+    expect(before).toContain("@bob");
+    const after = codeownersFor(team({ admins: ["alice"] }));
+    expect(after).not.toContain("@bob");
+    expect(after).toContain("@alice");
+  });
+});

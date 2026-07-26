@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "admins": [
+    "Waqas-Baloch"
+  ],
+  "members": [
+    "Waqas-Baloch"
+  ],
+  "governed": [
+    ".super-t/rules.md",
+    ".super-t/context.md",
+    ".super-t/product.md",
+    ".super-t/skills",
+    ".super-t/config.json",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "requireApproval": true
+}

@@ -75,6 +75,33 @@ export async function currentGitHubUser(root: string): Promise<string | null> {
   return login && validUsername(login) ? login : null;
 }
 
+export interface GitHubPerson {
+  login: string;
+  name: string | null;
+  url: string;
+}
+
+/**
+ * Look up who a username actually belongs to, before anything is granted.
+ *
+ * A username that merely LOOKS valid is not good enough: `a-teammate` — the
+ * placeholder from our own docs — is a real account belonging to a real
+ * stranger, and inviting it granted them write access to a private repo. A
+ * one-character typo can likewise land on somebody else's account. So we resolve
+ * the name and show the human behind it before asking for confirmation.
+ */
+export async function lookupGitHubUser(root: string, name: string): Promise<GitHubPerson | null> {
+  if (!validUsername(name)) return null;
+  const r = await execa("gh", ["api", `users/${name}`, "--jq", "[.login, .name, .html_url] | @tsv"], {
+    cwd: root,
+    reject: false,
+    timeout: 15_000,
+  }).catch(() => null);
+  if (!r || r.exitCode !== 0) return null;
+  const [login, personName, url] = r.stdout.trim().split("\t");
+  return login ? { login, name: personName || null, url: url || `https://github.com/${login}` } : null;
+}
+
 export function isAdmin(team: Team, user: string | null): boolean {
   return Boolean(user) && team.admins.some((a) => a.toLowerCase() === user!.toLowerCase());
 }

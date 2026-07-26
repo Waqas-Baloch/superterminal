@@ -1,0 +1,10 @@
+# Super Terminal: shared standards need an admin review.
+# Enforced by GitHub when the default branch is protected with
+# "Require review from Code Owners" enabled.
+/.super-t/rules.md @Waqas-Baloch
+/.super-t/context.md @Waqas-Baloch
+/.super-t/product.md @Waqas-Baloch
+/.super-t/skills @Waqas-Baloch
+/.super-t/config.json @Waqas-Baloch
+/AGENTS.md @Waqas-Baloch
+/CLAUDE.md @Waqas-Baloch
