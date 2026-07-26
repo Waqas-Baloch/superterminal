@@ -127,6 +127,21 @@ It does send anonymous usage counts — which agent, which command, whether a ta
 super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 ```
 
+## Developing
+
+```sh
+git clone https://github.com/Waqas-Baloch/superterminal.git
+cd superterminal
+npm install
+npm test          # 381 tests
+npm run build     # then run it with: node dist/cli.js
+```
+
+`npm run typecheck` and `npm test` both run in CI on Linux, macOS and Windows
+across Node 20 and 24, so run them before opening a pull request.
+[AGENTS.md](AGENTS.md) holds the standards any contributor — human or AI —
+should follow in this repo.
+
 ## Requirements
 
 Node 20 or later. Linux, macOS and Windows are tested in CI on every commit.
