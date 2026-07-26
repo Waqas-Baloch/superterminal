@@ -1,0 +1,46 @@
+name: Release
+
+# Publishing is irreversible, so it is never automatic: you press the button.
+# Actions → Release → Run workflow.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm >= 11.5.1; pin the major so a future
+      # breaking npm release can't change publish behaviour without a code change.
+      - name: Use an npm that supports trusted publishing
+        run: npm install -g npm@11
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Refuse to publish a version that already exists
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "super-t@$V" version >/dev/null 2>&1; then
+            echo "super-t@$V is already published — bump the version first."
+            exit 1
+          fi
+          echo "publishing super-t@$V"
+
+      # No NODE_AUTH_TOKEN anywhere: trusted publishing mints a short-lived
+      # credential from the OIDC identity of THIS workflow, and attaches
+      # provenance automatically. There is no long-lived npm token on a laptop
+      # or in repo secrets for anyone to steal.
+      - name: Publish
+        run: npm publish

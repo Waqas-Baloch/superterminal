@@ -4,6 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import { loadGlobalConfig, saveGlobalConfig, resolveAuth } from "../src/util/globalConfig";
 
+const POSIX = process.platform !== "win32"; // Windows has no POSIX file modes
+
 let home: string;
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -38,8 +40,7 @@ describe("global config", () => {
 
   it("stores the key with owner-only permissions", async () => {
     const file = await saveGlobalConfig({ provider: "api-key", apiKey: "sk-ant-test" });
-    const mode = (await fs.stat(file)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (POSIX) expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it("returns null for missing or corrupt config", async () => {

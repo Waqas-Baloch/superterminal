@@ -1,0 +1,75 @@
+name: CI
+
+# Every push and every pull request. Until this existed, all checks were run by
+# hand — which works for one person and stops working the moment anyone else
+# opens a PR, or a release goes out late at night.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: CI only needs to read the code.
+permissions:
+  contents: read
+
+concurrency:
+  # A new push supersedes an in-flight run of the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one platform failing must not hide the others
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 24] # 20 is the floor in package.json engines; 24 is current
+    steps:
+      # Actions are pinned by commit SHA, not tag: a tag can be moved to point
+      # at new code, and the 2025-26 npm worm waves propagated through
+      # workflows. The comment records which release each SHA was.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify the published bundle is complete
+        # A green test suite has shipped a hollow bundle before: a wiring patch
+        # silently failed, tsc stayed quiet (unused import), tests passed
+        # against source, and the built CLI was missing the feature. Assert on
+        # the artifact, not the source.
+        shell: bash
+        run: |
+          set -e
+          for s in "super-t" "Second opinion" "Acceptance criteria" "ticket-data" "team propose"; do
+            grep -rqF -e "$s" dist/ || { echo "MISSING from dist: $s"; exit 1; }
+          done
+          echo "bundle contains every expected marker"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Fails on high/critical only — the level the release checklist requires.
+      - run: npm audit --audit-level=high

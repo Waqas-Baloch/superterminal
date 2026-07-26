@@ -13,6 +13,8 @@ import {
 } from "../src/util/credentials";
 import { usableTrackers } from "../src/trackers";
 
+const POSIX = process.platform !== "win32"; // Windows has no POSIX file modes
+
 let home: string;
 beforeEach(async () => {
   home = await fs.mkdtemp(path.join(os.tmpdir(), "st-cred-"));
@@ -36,8 +38,7 @@ describe("credential store — protocol T3 as code", () => {
   it("stores in the HOME dir with 0600 — never in a repo", async () => {
     await setLinear({ apiKey: "k" });
     const file = path.join(home, "credentials.json");
-    const mode = (await fs.stat(file)).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (POSIX) expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it("keeps 0600 even when the file already existed with looser permissions", async () => {
@@ -45,7 +46,7 @@ describe("credential store — protocol T3 as code", () => {
     await fs.mkdir(home, { recursive: true });
     await fs.writeFile(file, "{}", { mode: 0o644 });
     await setLinear({ apiKey: "k" });
-    expect(((await fs.stat(file)).mode & 0o777)).toBe(0o600);
+    if (POSIX) expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
   });
 
   it("disconnect removes exactly one tracker", async () => {
@@ -174,6 +175,6 @@ describe("global config permissions — it can hold an API key", () => {
     await fs.mkdir(home, { recursive: true });
     await fs.writeFile(file, JSON.stringify({ provider: "codex" }), { mode: 0o644 });
     await saveGlobalConfig({ provider: "codex", reviewer: "claude-code" });
-    expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
+    if (POSIX) expect((await fs.stat(file)).mode & 0o777).toBe(0o600);
   });
 });
