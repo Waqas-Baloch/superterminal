@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import crypto from "node:crypto";
 import nodePath from "node:path";
 import prompts from "prompts";
 import pc from "picocolors";
@@ -7,7 +8,8 @@ import { loadRules, loadContext } from "./rules";
 import { loadSkills } from "./skills";
 import { log } from "../util/logger";
 
-// First-contact consent (control T1-P1 in docs/security-protocols.md).
+// First-contact consent: name a repository's agent instructions before they
+// are ever used to steer an agent.
 //
 // A repository's CLAUDE.md / AGENTS.md / rules.md / skills are injected into
 // whichever agent runs, as instructions the agent is told to obey. Clone an
@@ -20,7 +22,11 @@ import { log } from "../util/logger";
 // not be able to ship a marker that pre-approves itself.
 
 interface TrustFile {
-  repos: Record<string, { at: string }>;
+  // The hash lets us tell "the rules were edited" from "the rules now contain
+  // something hostile". Keying trust on the path alone missed a poisoned pull;
+  // keying it on content alone would re-prompt on every legitimate edit, and a
+  // prompt people see weekly is a prompt people stop reading.
+  repos: Record<string, { at: string; hash?: string }>;
 }
 
 // Phrases that read as an attempt to steer the agent rather than describe the
@@ -52,10 +58,19 @@ export async function isTrusted(root: string): Promise<boolean> {
   return Boolean((await read()).repos[nodePath.resolve(root)]);
 }
 
-export async function trustRepo(root: string): Promise<void> {
+/** A stable fingerprint of everything that will instruct the agent. */
+export function instructionHash(body: string): string {
+  return crypto.createHash("sha256").update(body).digest("hex").slice(0, 32);
+}
+
+async function storedHash(root: string): Promise<string | undefined> {
+  return (await read()).repos[nodePath.resolve(root)]?.hash;
+}
+
+export async function trustRepo(root: string, hash?: string): Promise<void> {
   try {
     const state = await read();
-    state.repos[nodePath.resolve(root)] = { at: new Date().toISOString() };
+    state.repos[nodePath.resolve(root)] = { at: new Date().toISOString(), hash };
     await fs.mkdir(homeDir(), { recursive: true });
     await fs.writeFile(file(), JSON.stringify(state, null, 2) + "\n", { mode: 0o600 });
     await fs.chmod(file(), 0o600).catch(() => {});
@@ -67,6 +82,7 @@ export async function trustRepo(root: string): Promise<void> {
 export interface InstructionSources {
   files: string[]; // repo-relative paths that will instruct the agent
   flags: string[]; // human-readable reasons this content looks like an attack
+  hash: string; // fingerprint of the combined content
 }
 
 /** Which files in this repo will be injected as agent instructions, and do they look hostile? */
@@ -76,7 +92,7 @@ export async function instructionSources(root: string): Promise<InstructionSourc
   const body = [rules.text, context.text, ...skills.map((s) => s.body)].join("\n");
   const flags: string[] = [];
   for (const [re, why] of SUSPICIOUS) if (re.test(body)) flags.push(why);
-  return { files: [...new Set(files)], flags };
+  return { files: [...new Set(files)], flags, hash: instructionHash(body) };
 }
 
 /**
@@ -88,9 +104,41 @@ export async function instructionSources(root: string): Promise<InstructionSourc
  * control addresses is a person cloning something unfamiliar.
  */
 export async function ensureTrusted(root: string, interactive: boolean): Promise<boolean> {
-  if (await isTrusted(root)) return true;
-  const { files, flags } = await instructionSources(root);
+  const { files, flags, hash } = await instructionSources(root);
   if (files.length === 0) return true; // nothing to consent to
+
+  const already = await isTrusted(root);
+  if (already) {
+    const before = await storedHash(root);
+    // Unchanged, or changed but still clean: stay quiet. Re-prompting on every
+    // ordinary rules edit is how a security prompt becomes background noise.
+    if (before === hash) return true;
+    if (flags.length === 0) {
+      await trustRepo(root, hash); // remember the new content, silently
+      return true;
+    }
+    // Changed AND now looks hostile — the poisoned-pull case. Ask again.
+    log.info("");
+    log.warn("This repository's agent instructions changed, and the new content looks hostile:");
+    for (const f of flags) log.warn(`  · it ${f}`);
+    for (const f of files) log.dim(`    ${f}`);
+    if (!interactive) {
+      log.error("Refusing to run unattended with instructions that changed to something hostile.");
+      return false;
+    }
+    const { keep } = await prompts({
+      type: "confirm",
+      name: "keep",
+      message: "Trust the changed instructions?",
+      initial: false,
+    });
+    if (!keep) {
+      log.info("Not trusted — nothing was sent. Review the change (try `git diff`), then run again.");
+      return false;
+    }
+    await trustRepo(root, hash);
+    return true;
+  }
 
   log.info("");
   log.info(pc.bold("This repository contains instructions that will be sent to your AI agent:"));
@@ -122,7 +170,7 @@ export async function ensureTrusted(root: string, interactive: boolean): Promise
     log.info("Not trusted — nothing was sent. Review those files, then run again.");
     return false;
   }
-  await trustRepo(root);
+  await trustRepo(root, hash);
   log.dim(`  Remembered. Managed in ${nodePath.join(homeDir(), "trusted.json")}.`);
   return true;
 }

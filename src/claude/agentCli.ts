@@ -168,7 +168,11 @@ export interface AgentCliDef {
   id: AgentCliId;
   title: string;
   bin: string;
-  installCmd: string; // shell command for `super-t connect` to offer
+  installCmd: string; // shown to the user; may contain a pipe, so never executed as a string
+  // Present only when the install can run WITHOUT a shell. Absent means the
+  // vendor's method pipes a downloaded script into a shell (`curl … | bash`),
+  // which Super Terminal will display but refuses to execute on your behalf.
+  installArgs?: string[];
   installHint: string;
   loginArgs: string[] | null; // interactive login after install; null = manual
   loginHint: string;
@@ -303,6 +307,7 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     title: "ChatGPT (Codex)",
     bin: "codex",
     installCmd: "npm install -g @openai/codex",
+    installArgs: ["npm", "install", "-g", "@openai/codex"], // no shell needed
     installHint: "install: npm i -g @openai/codex (or `brew install codex`)",
     loginArgs: ["login"],
     loginHint: "run `codex login` with your ChatGPT account",

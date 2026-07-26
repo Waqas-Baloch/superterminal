@@ -2,7 +2,7 @@ import { parseCriteria } from "../core/criteria";
 import type { TrackerTicket } from "./types";
 
 // How ticket content is allowed to reach an agent — the T2 controls from
-// docs/security-protocols.md, as code.
+// the ticket-content controls, as code.
 //
 // A ticket body is authored by whoever can file a ticket. It is treated
 // exactly like a hostile README: useful requirements DATA, never instructions

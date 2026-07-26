@@ -22,3 +22,14 @@ dist/
 
 # Private security notes — a list of known-weak spots must not be public.
 docs/*.local.md
+
+# Private: strategy, specs, threat model, security review methodology.
+# Kept local so a competitor gets no roadmap and an attacker gets no map.
+private/
+
+# Local development tooling. The security-review skill and agent stay on this
+# machine: they work where the tools expect them, but publishing a review
+# methodology (and what it looks for) helps an attacker more than a user.
+.claude/
+.super-t/skills/
+.super-t/config.json

@@ -2,7 +2,7 @@ import pc from "picocolors";
 import prompts from "prompts";
 import { linearWhoAmI } from "../trackers/linear";
 import { jiraWhoAmI } from "../trackers/jira";
-import { setLinear, setJira, clearTracker, connectedTrackers, normalizeJiraSite } from "../util/credentials";
+import { setLinear, setJira, clearTracker, connectedTrackers, normalizeJiraSite, storageWarning } from "../util/credentials";
 import { loadConfig, updateProjectConfig } from "../util/config";
 import { STATE_DIR } from "../util/paths";
 import { log } from "../util/logger";
@@ -96,6 +96,7 @@ async function connect(): Promise<void> {
     }
     await setLinear({ apiKey: key.trim() });
     log.success(`Connected to Linear as ${who}. Try: super-t ticket`);
+    noteStorage();
     return;
   }
 
@@ -122,6 +123,7 @@ async function connect(): Promise<void> {
   }
   await setJira(cred);
   log.success(`Connected to Jira (${site}) as ${who}. Try: super-t ticket`);
+  noteStorage();
 }
 
 async function disconnect(): Promise<void> {
@@ -139,4 +141,11 @@ async function disconnect(): Promise<void> {
   if (which === undefined) return;
   await clearTracker(which);
   log.success(`${which === "linear" ? "Linear" : "Jira"} token removed from this machine.`);
+}
+
+/** Say where the token lives, and what that protection is actually worth. */
+function noteStorage(): void {
+  log.dim("  Stored in ~/.super-t/credentials.json (owner-only), never in a repository.");
+  const w = storageWarning();
+  if (w) log.warn(`  ${w}`);
 }

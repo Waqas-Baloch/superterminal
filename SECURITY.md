@@ -16,4 +16,7 @@ Please report vulnerabilities privately via **GitHub Security Advisories** ("Rep
 - Your code goes only to the AI agent you chose — Super Terminal adds no destination for source code
 - Telemetry cannot carry free text by construction (enumerated fields, tested)
 - Credentials are stored in your home directory with 0600 permissions, never inside a repository
-- The full threat model and controls live in [docs/security-protocols.md](docs/security-protocols.md)
+- We maintain a written threat model and review every change against it. Specific
+  controls are visible in the source; the prioritised list of open gaps is kept
+  private, because a ranked inventory of weak spots helps an attacker in a way
+  that our implemented controls do not.

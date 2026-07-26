@@ -124,6 +124,25 @@ async function verify(client: Anthropic, opts?: { quiet?: boolean }): Promise<bo
 }
 
 async function installAgent(agent: AgentCliDef): Promise<boolean> {
+  // Two very different cases, and only one is ours to run.
+  //
+  // `npm install -g …` is a plain command: we can execute it as an argument
+  // array, with no shell involved at all.
+  //
+  // The others are the vendors' own `curl … | bash`. A pipe needs a shell, and
+  // piping a downloaded script into a shell means whoever controls that URL
+  // controls this machine. That is the vendors' documented method and it may
+  // well be fine — but Super Terminal will not be the thing that runs remote
+  // code for you. We print it; you decide.
+  if (!agent.installArgs) {
+    log.info("");
+    log.info(`${agent.title} installs with the vendor's own script:`);
+    log.info(`  ${pc.bold(agent.installCmd)}`);
+    log.dim("  That downloads a script and runs it. Super Terminal won't run remote code for you —");
+    log.dim("  copy the line above, run it yourself, then rerun `super-t connect`.");
+    return false;
+  }
+
   const { go } = await prompts({
     type: "confirm",
     name: "go",
@@ -135,8 +154,8 @@ async function installAgent(agent: AgentCliDef): Promise<boolean> {
     return false;
   }
   log.info(pc.dim(`$ ${agent.installCmd}`));
-  const result = await execa(agent.installCmd, {
-    shell: true,
+  const [bin, ...rest] = agent.installArgs;
+  const result = await execa(bin, rest, {
     stdio: "inherit",
     reject: false,
     timeout: 600_000,

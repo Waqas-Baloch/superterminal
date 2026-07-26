@@ -6,7 +6,7 @@ import { AGENT_CLIS, isAgentInstalled, pathWithLocalBin } from "../claude/agentC
 import { resolveAuth, loadGlobalConfig } from "../util/globalConfig";
 import { lastLimit, agoLabel } from "../util/limits";
 import { status as telemetryStatus } from "../util/telemetry";
-import { connectedTrackers } from "../util/credentials";
+import { connectedTrackers, storageWarning } from "../util/credentials";
 import { homeDir, stateDir, STATE_DIR } from "../util/paths";
 import { loadConfig } from "../util/config";
 import { loadRules } from "../core/rules";
@@ -104,6 +104,8 @@ export async function doctorCommand(): Promise<void> {
   log.info("");
   log.info(pc.bold("  Machine"));
   ok(`State home  ${pc.dim(homeDir())}`);
+  const sw = storageWarning();
+  if (sw && (await connectedTrackers()).length > 0) warn("Credential file permissions", sw);
   const t = await telemetryStatus();
   if (!t.collecting) ok("Usage counting not configured in this build");
   else if (t.enabled) ok("Usage counting on", "anonymous counts only · `super-t telemetry off`");

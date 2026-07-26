@@ -1,5 +1,5 @@
 // Types for the Super Terminal Context Ranking Specification. See
-// docs/ranking-spec.md for the source formulas this module implements.
+// the ranking specification this module implements (kept with the project notes).
 
 export type TaskType = "ui" | "copy" | "logic" | "style" | "data" | "api" | "config" | "test" | "infra";
 export type TaskScope = "local" | "component" | "flow" | "cross-cutting";

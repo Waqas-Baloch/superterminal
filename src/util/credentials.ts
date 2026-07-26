@@ -51,6 +51,22 @@ export async function getJira(): Promise<JiraCredentials | null> {
   return (await read()).jira ?? null;
 }
 
+/**
+ * What "0600" does and does not buy you, said plainly once.
+ *
+ * On macOS and Linux it means only your user account can read the file. On
+ * Windows POSIX modes do not exist, so the call is a no-op and the only
+ * protection is the user-profile folder's own permissions. Either way, anything
+ * running AS you can read it — a malicious npm postinstall, a compromised
+ * editor extension. Users of a trust product should hear that from us.
+ */
+export function storageWarning(): string | null {
+  if (process.platform === "win32") {
+    return "On Windows there are no POSIX file permissions, so this token is protected only by your user profile folder.";
+  }
+  return null;
+}
+
 export async function setLinear(c: LinearCredentials): Promise<void> {
   await write({ ...(await read()), linear: c });
 }

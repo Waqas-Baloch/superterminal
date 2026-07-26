@@ -56,5 +56,7 @@ live in `~/.super-t/` at 0600, never in a repository.
 **Everything is reversible.** Every run backs up what it touches before editing,
 so `super-t revert` restores a run — or an entire multi-step flow.
 
-See [docs/security-protocols.md](docs/security-protocols.md) for the threat
-model and the gates each roadmap phase must pass.
+Security controls are implemented in the source rather than described elsewhere:
+`core/trust.ts` (first-contact consent), `core/mentions.ts` (repo containment),
+`report/runReport.ts` (secret redaction), `claude/agentCli.ts` (per-vendor safety
+modes). Report a suspected weakness via [SECURITY.md](SECURITY.md).

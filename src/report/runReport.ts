@@ -21,7 +21,7 @@ export interface RunReportInput {
   notCheckedReason?: string;
 }
 
-// Phase-1 security gate (docs/security-protocols.md): reports may travel to
+// Reports may travel to
 // tickets and chats, so token-shaped strings never survive into one.
 const TOKEN_RE = new RegExp(
   [
