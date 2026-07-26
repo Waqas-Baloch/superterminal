@@ -11,7 +11,7 @@ import {
   connectedTrackers,
   normalizeJiraSite,
 } from "../src/util/credentials";
-import { resolveTracker } from "../src/trackers";
+import { usableTrackers } from "../src/trackers";
 
 let home: string;
 beforeEach(async () => {
@@ -71,25 +71,34 @@ describe("normalizeJiraSite — a bare https origin or nothing", () => {
   });
 });
 
-describe("resolveTracker — clear reasons, honored preference", () => {
+describe("usableTrackers — every usable tracker, not just the first", () => {
   it("explains every unusable tracker when nothing is configured", async () => {
-    const r = await resolveTracker(home); // home dir: not a github repo, no tokens
-    if ("adapter" in r) throw new Error("nothing should be usable here");
+    const r = await usableTrackers(home); // home dir: not a github repo, no tokens
+    expect(r.usable).toEqual([]);
     expect(r.reasons.length).toBeGreaterThanOrEqual(3);
     expect(r.reasons.join("\n")).toContain("tracker connect");
   });
 
   it("a preference narrows to that tracker only", async () => {
-    const r = await resolveTracker(home, "linear");
-    if ("adapter" in r) throw new Error("linear has no token here");
+    const r = await usableTrackers(home, "linear");
+    expect(r.usable).toEqual([]);
     expect(r.reasons).toHaveLength(1);
     expect(r.reasons[0]).toContain("Linear");
   });
 
-  it("a connected preferred tracker wins", async () => {
+  it("returns a connected tracker as usable", async () => {
     await setLinear({ apiKey: "k" });
-    const r = await resolveTracker(home, "linear");
-    expect("adapter" in r && r.adapter.id).toBe("linear");
+    const r = await usableTrackers(home, "linear");
+    expect(r.usable.map((a) => a.id)).toEqual(["linear"]);
+  });
+
+  it("lists ALL usable trackers together, so no connected work is hidden", async () => {
+    await setLinear({ apiKey: "k" });
+    await setJira({ site: "https://acme.atlassian.net", email: "e@acme.com", apiToken: "t" });
+    const r = await usableTrackers(home);
+    // Both token-based trackers qualify; GitHub can't (this dir is no repo).
+    expect(r.usable.map((a) => a.id).sort()).toEqual(["jira", "linear"]);
+    expect(r.reasons.join(" ")).toContain("GitHub");
   });
 });
 

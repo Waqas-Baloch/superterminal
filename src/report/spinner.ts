@@ -39,8 +39,25 @@ function buildFrames(): string[] {
 
 export const brandSpinner = { interval: INTERVAL, frames: buildFrames() };
 
+/**
+ * Can this stream be animated safely?
+ *
+ * A terminal that claims to be interactive while reporting zero width breaks
+ * cursor arithmetic: ora derives a line count from text width ÷ columns, and a
+ * zero divisor makes it emit hundreds of "cursor up + erase line" sequences per
+ * frame — measured at ~5MB/s, enough to flood a terminal and stall a pipeline.
+ * Real ptys do this when no window size was negotiated (some CI runners, bare
+ * `expect`/`script` sessions, containers started with -t and no size).
+ */
+export function canAnimate(stream: { isTTY?: boolean; columns?: number }): boolean {
+  if (!stream.isTTY) return false;
+  return typeof stream.columns === "number" && stream.columns > 0;
+}
+
 /** ora, wearing Super Terminal's wave. Use instead of calling ora() directly. */
 export function spin(text: string): Ora {
+  // Unsized terminal: print the label once rather than animate into a flood.
+  if (!canAnimate(process.stdout)) return ora({ text, spinner: brandSpinner, isEnabled: false });
   return ora({ text, spinner: brandSpinner });
 }
 
@@ -81,7 +98,9 @@ export interface Wave {
  */
 export function pixelWave(label: string): Wave {
   const out = process.stdout;
-  if (!out.isTTY) {
+  // Same guard as spin(): without a known width, row-relative cursor moves
+  // can't be trusted, so don't animate at all.
+  if (!canAnimate(out)) {
     out.write(`${label}\n`);
     return { stop: () => {} };
   }

@@ -36,12 +36,16 @@ export const githubTracker: TrackerAdapter = {
   scope: "repository", // gh issue list is scoped to the repo you're standing in
 
   async available(root: string): Promise<true | string> {
-    const version = await gh(root, ["--version"]).catch(() => null);
+    // All three probes at once, then interpreted in priority order so the
+    // message stays as specific as the sequential version was.
+    const [version, auth, repo] = await Promise.all([
+      gh(root, ["--version"]).catch(() => null),
+      gh(root, ["auth", "status"]).catch(() => null),
+      gh(root, ["repo", "view", "--json", "name"]).catch(() => null),
+    ]);
     if (!version?.ok) return "the `gh` CLI isn't installed (https://cli.github.com)";
-    const auth = await gh(root, ["auth", "status"]);
-    if (!auth.ok) return "gh isn't signed in — run `gh auth login`";
-    const repo = await gh(root, ["repo", "view", "--json", "name"]);
-    if (!repo.ok) return "this folder isn't a GitHub repository (no GitHub remote)";
+    if (!auth?.ok) return "gh isn't signed in — run `gh auth login`";
+    if (!repo?.ok) return "this folder isn't a GitHub repository (no GitHub remote)";
     return true;
   },
 
