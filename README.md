@@ -133,4 +133,9 @@ Node 20 or later. Linux, macOS and Windows are tested in CI on every commit.
 
 ## License
 
-MIT
+Source-available under the [Functional Source License](LICENSE) (`FSL-1.1-MIT`):
+free for any use including commercial and internal work, readable in full, and
+it becomes MIT two years after each release. The only restriction is selling a
+competing product built from it. Plain-English summary: [LICENSING.md](LICENSING.md).
+
+Versions up to 1.9.x were released under MIT and remain so.
