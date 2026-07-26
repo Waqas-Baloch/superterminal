@@ -94,7 +94,6 @@ super-t revert           # restore the last run
 | `super-t init` | Draft a starter rules file |
 | `super-t revert` | Restore files from the last run |
 | `super-t forget` | Clear learned disambiguation choices |
-| `super-t telemetry` | Show or change anonymous usage counting |
 
 ## Teams
 

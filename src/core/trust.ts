@@ -95,8 +95,7 @@ export async function ensureTrusted(root: string, interactive: boolean): Promise
   log.info("");
   log.info(pc.bold("This repository contains instructions that will be sent to your AI agent:"));
   for (const f of files) log.info(`  ${f}`);
-  log.dim("  They tell the agent what to do and what to avoid — and in a repository you");
-  log.dim("  didn't write, they can contain instructions you never approved.");
+  log.dim("  In a repository you didn't write, these can contain instructions you never approved.");
 
   if (flags.length > 0) {
     log.info("");
