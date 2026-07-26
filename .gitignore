@@ -19,3 +19,6 @@ dist/
 # Directories from earlier names of this project. Nothing reads them.
 .glint/
 .squash/
+
+# Private security notes — a list of known-weak spots must not be public.
+docs/*.local.md
