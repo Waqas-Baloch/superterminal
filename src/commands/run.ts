@@ -12,6 +12,7 @@ import { type EditScope } from "../core/clarify";
 import { safetyGate } from "../core/gate";
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
+import { standardsWarning } from "../core/team";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
@@ -371,6 +372,15 @@ async function promptNextTask(first: boolean): Promise<string | undefined> {
 async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   const { root, auth, config, budget, model, opts } = ctx;
   const sessionNote = buildSessionNote(ctx.memory);
+
+  // Team standards: say so when the rules about to govern this run are the
+  // caller's own uncommitted edits rather than the team's approved set.
+  const drift = await standardsWarning(root);
+  if (drift) {
+    log.info("");
+    log.warn(drift[0]);
+    for (const line of drift.slice(1)) log.dim(line);
+  }
 
   // 1-3: index, map, select
   const spinner = spin("Indexing repo…").start();

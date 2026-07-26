@@ -83,6 +83,11 @@ super-t revert           # restore the last run
 | `super-t resume [--with agent]` | Continue the last task — with any vendor |
 | `super-t doctor` | Check agents, connection, trackers, and project state |
 | `super-t skills sync` | One skill set for every agent — materialize to native formats |
+| `super-t team init` | Shared standards with admin approval (Git + GitHub, no server) |
+| `super-t team invite <user>` | Invite a developer by GitHub username (beta: up to 5) |
+| `super-t team propose "why"` | Send your standards change for admin approval as a pull request |
+| `super-t feedback <user>` | Ask a person to review your last run — arrives as a GitHub issue |
+| `super-t review codex --always` | A different vendor checks every change, in every project |
 | `super-t connect` | One-time setup — pick your agent |
 | `super-t switch` | Change the active agent |
 | `super-t search` | Switch project |
@@ -90,6 +95,22 @@ super-t revert           # restore the last run
 | `super-t revert` | Restore files from the last run |
 | `super-t forget` | Clear learned disambiguation choices |
 | `super-t telemetry` | Show or change anonymous usage counting |
+
+## Teams
+
+Standards live in your repository, so Git is the sync layer and GitHub is the approval mechanism — there is no server and no account.
+
+```sh
+super-t team init                    # you become admin; writes .github/CODEOWNERS
+super-t team invite some-developer   # by GitHub username
+super-t team status                  # who's admin, and whether your standards are current
+```
+
+Every member gets the same rules, context, and skills on `git pull`. If a non-admin edits a governed file, Super Terminal says so before any agent runs — because those local edits would otherwise govern that run — and `super-t team propose "what changed"` sends them for approval as a pull request.
+
+To make approval **enforced** rather than advisory, protect your default branch and enable *Require review from Code Owners*. Super Terminal can warn; only GitHub can block a merge.
+
+Beta: teams up to 5 members, free.
 
 ## Supported agents
 

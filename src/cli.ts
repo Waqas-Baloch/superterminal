@@ -14,6 +14,8 @@ import { skillsCommand } from "./commands/skillsCmd";
 import { ticketCommand } from "./commands/ticket";
 import { trackerCommand } from "./commands/tracker";
 import { reviewCommand } from "./commands/review";
+import { teamCommand } from "./commands/team";
+import { feedbackCommand } from "./commands/feedback";
 import { trackInstallOnce } from "./util/telemetry";
 import { connectCommand } from "./commands/connect";
 import { switchCommand } from "./commands/switch";
@@ -122,6 +124,20 @@ program
   .option("-a, --always", "apply to every project on this machine, not just this one")
   .description("have a different vendor review every change and check each acceptance criterion")
   .action(reviewCommand);
+
+program
+  .command("team")
+  .argument("[action]", "init | status | invite | propose")
+  .argument("[value]", "for invite: a GitHub username · for propose: a short summary")
+  .description("shared standards with admin approval, over Git and GitHub")
+  .action(teamCommand);
+
+program
+  .command("feedback")
+  .argument("[username]", "GitHub username to ask for a review")
+  .option("-m, --message <text>", "a note to include with the request")
+  .description("ask a person to review your last run — arrives as a GitHub issue assigned to them")
+  .action(feedbackCommand);
 
 program
   .command("doctor")
