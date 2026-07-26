@@ -22,7 +22,9 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   delete process.env.SUPER_T_HOME;
-  await fs.rm(home, { recursive: true, force: true });
+  // Windows can refuse a delete while a handle is still closing (EBUSY), which
+  // turned one failure into two. Retry rather than fail the teardown.
+  await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe("credential store — protocol T3 as code", () => {
@@ -72,7 +74,10 @@ describe("normalizeJiraSite — a bare https origin or nothing", () => {
   });
 });
 
-describe("usableTrackers — every usable tracker, not just the first", () => {
+// These spawn real `gh` subprocesses to decide availability. Windows process
+// creation is slow enough that the 5s default fails there — the code is fine,
+// the budget wasn't.
+describe("usableTrackers — every usable tracker, not just the first", { timeout: 30_000 }, () => {
   it("explains every unusable tracker when nothing is configured", async () => {
     const r = await usableTrackers(home); // home dir: not a github repo, no tokens
     expect(r.usable).toEqual([]);

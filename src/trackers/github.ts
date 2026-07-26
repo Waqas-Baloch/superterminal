@@ -25,8 +25,25 @@ function toTicket(i: GhIssue): TrackerTicket {
   };
 }
 
-async function gh(root: string, args: string[], input?: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  const r = await execa("gh", args, { cwd: root, reject: false, timeout: 30_000, input });
+// Availability probes get a short leash: a tracker that can't answer "are you
+// usable?" quickly is not usable, and 30s of silence reads as a hang. Real
+// queries keep the longer budget.
+const PROBE_TIMEOUT = 8_000;
+const QUERY_TIMEOUT = 30_000;
+
+async function gh(
+  root: string,
+  args: string[],
+  opts: { input?: string; timeout?: number } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  const r = await execa("gh", args, {
+    cwd: root,
+    reject: false,
+    timeout: opts.timeout ?? QUERY_TIMEOUT,
+    input: opts.input,
+    // gh must never sit waiting on input during a probe.
+    stdin: opts.input === undefined ? "ignore" : "pipe",
+  });
   return { ok: r.exitCode === 0, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
@@ -38,10 +55,11 @@ export const githubTracker: TrackerAdapter = {
   async available(root: string): Promise<true | string> {
     // All three probes at once, then interpreted in priority order so the
     // message stays as specific as the sequential version was.
+    const probe = { timeout: PROBE_TIMEOUT };
     const [version, auth, repo] = await Promise.all([
-      gh(root, ["--version"]).catch(() => null),
-      gh(root, ["auth", "status"]).catch(() => null),
-      gh(root, ["repo", "view", "--json", "name"]).catch(() => null),
+      gh(root, ["--version"], probe).catch(() => null),
+      gh(root, ["auth", "status"], probe).catch(() => null),
+      gh(root, ["repo", "view", "--json", "name"], probe).catch(() => null),
     ]);
     if (!version?.ok) return "the `gh` CLI isn't installed (https://cli.github.com)";
     if (!auth?.ok) return "gh isn't signed in — run `gh auth login`";
@@ -90,7 +108,7 @@ export const githubTracker: TrackerAdapter = {
   async postComment(root: string, id: string, body: string): Promise<boolean> {
     const clean = id.replace(/^#/, "").trim();
     if (!/^\d{1,8}$/.test(clean)) return false;
-    const r = await gh(root, ["issue", "comment", clean, "--body-file", "-"], body);
+    const r = await gh(root, ["issue", "comment", clean, "--body-file", "-"], { input: body });
     return r.ok;
   },
 };
