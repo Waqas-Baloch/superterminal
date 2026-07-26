@@ -1,10 +1,10 @@
 # Super Terminal
 
-**One control layer for every AI coding agent.**
+**One rulebook for every AI coding agent.**
 
-Super Terminal is a free, local-first CLI that sits between you and Claude Code, Cursor, or ChatGPT Codex. Write your project's rules once and every agent follows them. Chain several agents into a single workflow. Keep only the changes you meant.
+Super Terminal sits between you and Claude Code, Cursor, or ChatGPT Codex. Write your project's rules once and every agent follows them — then a *different* vendor's AI checks the work against those rules before you keep it.
 
-It is not an agent. It has no model of its own and writes no code — it orchestrates the agent you already pay for.
+Free, local-first, and it uses the AI subscription you already pay for. It is not an agent: it has no model of its own and writes no code.
 
 ## Install
 
@@ -120,6 +120,8 @@ Claude Code, Cursor, and ChatGPT Codex. Super Terminal uses the subscription you
 
 Your code goes only to the AI agent you chose, the same place it already goes when you use that agent directly. Super Terminal adds no separate destination for your source code.
 
+The first time you use Super Terminal in a repository, it names every file that will be sent to your agent as instructions — `CLAUDE.md`, `AGENTS.md`, rules, skills — and asks once. A repository you cloned can contain instructions you never wrote, and this is where you find out. If that content looks like it is trying to steer the agent (telling it to ignore instructions, read credentials, or pipe a script to a shell), Super Terminal says so and defaults to "no".
+
 It does send anonymous usage counts — which agent, which command, whether a task finished, plus version and OS. Never your prompts, filenames, paths, code, diffs, or repo names; the fields that may be transmitted are enumerated in [`src/util/telemetry.ts`](src/util/telemetry.ts) and covered by tests.
 
 ```sh
@@ -128,7 +130,7 @@ super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 
 ## Requirements
 
-Node 20 or later. macOS and Linux are tested; Windows is untested.
+Node 20 or later. Linux, macOS and Windows are tested in CI on every commit.
 
 ## License
 

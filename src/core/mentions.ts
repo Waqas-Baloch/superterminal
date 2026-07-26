@@ -25,14 +25,30 @@ export function extractFileMentions(task: string): string[] {
   return [...new Set([...task.matchAll(FILE_TOKEN)].map((m) => m[1]))];
 }
 
+/**
+ * Is this repo-relative path genuinely inside the repo?
+ *
+ * A mention like `docs/../../secrets.env` used to resolve, be read, and have
+ * its contents injected into the prompt sent to the agent vendor — and since a
+ * task can be derived from a ticket title, anyone able to file a ticket could
+ * name a file outside the repository. Both guards are kept deliberately: reject
+ * traversal segments outright, and verify containment after resolution.
+ */
+export function insideRoot(root: string, rel: string): boolean {
+  if (rel.split(/[\\/]/).includes("..")) return false;
+  const base = nodePath.resolve(root);
+  const target = nodePath.resolve(base, rel);
+  return target === base || target.startsWith(base + nodePath.sep);
+}
+
 /** Of those, the ones that actually exist — by path, or by basename anywhere. */
 export async function resolveMentions(root: string, task: string): Promise<string[]> {
   const out: string[] = [];
   for (const token of extractFileMentions(task)) {
     if (out.length >= MAX_FILES) break;
-    if (token.includes("/") && (await exists(nodePath.join(root, token)))) {
-      out.push(token);
-      continue;
+    if (token.includes("/")) {
+      if (insideRoot(root, token) && (await exists(nodePath.join(root, token)))) out.push(token);
+      continue; // a slashed token is a path claim: never fall through to a basename search
     }
     const base = nodePath.basename(token);
     const hits = await fg(`**/${base}`, { cwd: root, ignore: IGNORE, dot: true, onlyFiles: true }).catch(() => []);
@@ -44,6 +60,7 @@ export async function resolveMentions(root: string, task: string): Promise<strin
 export async function readMentioned(root: string, paths: string[]): Promise<MentionedFile[]> {
   const out: MentionedFile[] = [];
   for (const p of paths) {
+    if (!insideRoot(root, p)) continue; // second line of defence: never read outside the repo
     const raw = (await fs.readFile(nodePath.join(root, p), "utf8").catch(() => "")).trim();
     if (!raw) continue;
     out.push({ path: p, content: raw.length > MAX_CHARS ? `${raw.slice(0, MAX_CHARS)}\n…(truncated)` : raw });

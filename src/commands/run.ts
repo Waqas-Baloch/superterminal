@@ -13,6 +13,7 @@ import { safetyGate } from "../core/gate";
 import { findMissingKeeps, type Instance } from "../core/understanding";
 import { rememberChoice } from "../core/memory";
 import { standardsWarning } from "../core/team";
+import { ensureTrusted } from "../core/trust";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
@@ -372,6 +373,13 @@ async function promptNextTask(first: boolean): Promise<string | undefined> {
 async function executeTask(task: string, ctx: ExecContext): Promise<void> {
   const { root, auth, config, budget, model, opts } = ctx;
   const sessionNote = buildSessionNote(ctx.memory);
+
+  // First-contact consent (T1): this repo's instruction files are about to
+  // steer an agent. Name them before that happens.
+  if (!(await ensureTrusted(root, Boolean(process.stdin.isTTY) && opts.yes !== true))) {
+    process.exitCode = 1;
+    return;
+  }
 
   // Team standards: say so when the rules about to govern this run are the
   // caller's own uncommitted edits rather than the team's approved set.

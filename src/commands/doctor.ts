@@ -11,6 +11,7 @@ import { homeDir, stateDir, STATE_DIR } from "../util/paths";
 import { loadConfig } from "../util/config";
 import { loadRules } from "../core/rules";
 import { resolveReviewer, reviewerSource } from "../core/review";
+import { instructionSources, isTrusted } from "../core/trust";
 import { VERSION } from "../version";
 import { log } from "../util/logger";
 
@@ -77,6 +78,12 @@ export async function doctorCommand(): Promise<void> {
     .catch(() => false);
   if (rules) ok("Rules file present");
   else warn("No rules file", "run `super-t init` to draft one");
+  const { files: instr, flags } = await instructionSources(root);
+  if (instr.length === 0) ok("No repo instruction files", "nothing is injected into agents");
+  else if (flags.length > 0) bad(`${instr.length} instruction file(s) — CONTENT LOOKS HOSTILE`, flags[0]);
+  else if (await isTrusted(root)) ok(`${instr.length} instruction file(s) trusted`, instr.slice(0, 3).join(", "));
+  else warn(`${instr.length} instruction file(s) not yet reviewed`, "you'll be asked on the next run");
+
   const globalReviewer = (await loadGlobalConfig())?.reviewer ?? null;
   const rulesText = (await loadRules(root)).text;
   const reviewer = config ? resolveReviewer(config, rulesText, globalReviewer) : globalReviewer;

@@ -23,6 +23,7 @@ import {
   type SafetyMode,
 } from "../claude/agentCli";
 import { recordLimit, inCooldown } from "../util/limits";
+import { ensureTrusted } from "../core/trust";
 import { restoreTo } from "./compare";
 import { snapshot, diffAgainst } from "./compare";
 import { printSemanticSummary } from "./shared";
@@ -83,6 +84,11 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
   const config = await loadConfig(root);
   const budget = opts.budget ? Number(opts.budget) : config.budgetTokens;
   const mode = (opts.mode ?? config.mode) as SafetyMode;
+
+  if (!(await ensureTrusted(root, Boolean(process.stdin.isTTY) && !opts.yes))) {
+    process.exitCode = 1;
+    return;
+  }
 
   const steps = parseFlow(input);
   if (steps.length === 0) {

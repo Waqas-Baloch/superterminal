@@ -23,8 +23,17 @@ export interface RunReportInput {
 
 // Phase-1 security gate (docs/security-protocols.md): reports may travel to
 // tickets and chats, so token-shaped strings never survive into one.
-const TOKEN_RE =
-  /\b(?:sk|rk|ghp|gho|ghs|glpat|xox[a-z]|phx|ntn|secret|lin_api)_[A-Za-z0-9_-]{8,}\b|\bBearer\s+[A-Za-z0-9._-]{12,}\b/gi;
+const TOKEN_RE = new RegExp(
+  [
+    // prefix_ styles: OpenAI, GitHub, GitLab, Slack, PostHog personal, Notion, Linear
+    String.raw`\b(?:sk|rk|ghp|gho|ghs|glpat|xox[a-z]|phx|ntn|secret|lin_api)_[A-Za-z0-9_-]{8,}\b`,
+    // Atlassian (Jira/Confluence) tokens carry NO underscore, so the pattern
+    // above missed them entirely — and reports travel to tickets and chats.
+    String.raw`\bAT(?:ATT|CTT)[A-Za-z0-9_\-=]{16,}\b`,
+    String.raw`\bBearer\s+[A-Za-z0-9._-]{12,}\b`,
+  ].join("|"),
+  "gi",
+);
 
 export function redactSecrets(text: string): string {
   return text.replace(TOKEN_RE, "[redacted]");
