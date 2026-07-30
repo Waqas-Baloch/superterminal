@@ -133,7 +133,7 @@ super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 git clone https://github.com/Waqas-Baloch/superterminal.git
 cd superterminal
 npm install
-npm test          # 381 tests
+npm test          # 398 tests
 npm run build     # then run it with: node dist/cli.js
 ```
 

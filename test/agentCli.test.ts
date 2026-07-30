@@ -19,6 +19,62 @@ import {
 
 let dir: string;
 
+// Regression net for a real defect: applyMode had no `cursor` branch, so all four
+// safety modes produced the identical argv — `-p TASK --force`. "review" therefore
+// ran the second-opinion reviewer with "force allow every command", while the
+// product told people a reviewer can only report.
+describe("safety dial reaches every agent, not just Claude Code", () => {
+  const argv = (id: keyof typeof AGENT_CLIS, mode: "standard" | "safe" | "full" | "review") =>
+    composeArgs(AGENT_CLIS[id], AGENT_CLIS[id].runArgs("TASK"), false, mode);
+
+  it("cursor: review mode is read-only and drops --force", () => {
+    const a = argv("cursor", "review");
+    expect(a).not.toContain("--force"); // --force = allow every command
+    expect(a.join(" ")).toContain("--mode ask"); // cursor-agent's read-only mode
+  });
+
+  it("cursor: each mode produces a DIFFERENT argv", () => {
+    const seen = (["standard", "safe", "full", "review"] as const).map((m) => argv("cursor", m).join(" "));
+    expect(new Set(seen).size).toBe(4);
+  });
+
+  it("cursor: safe sandboxes, full unsandboxes", () => {
+    expect(argv("cursor", "safe").join(" ")).toContain("--sandbox enabled");
+    expect(argv("cursor", "full").join(" ")).toContain("--sandbox disabled");
+  });
+
+  it("no agent can write or run a shell while reviewing", () => {
+    // Claude Code denies the write tools; Codex drops to read-only sandbox;
+    // Cursor switches to a read-only mode. Whatever the vocabulary, the review
+    // argv must never carry that agent's allow-everything switch.
+    const escapes: Record<string, string[]> = {
+      "claude-code": ["--dangerously-skip-permissions"],
+      cursor: ["--force", "--yolo"],
+      codex: ["danger-full-access"],
+    };
+    for (const [id, bad] of Object.entries(escapes)) {
+      const a = argv(id as keyof typeof AGENT_CLIS, "review").join(" ");
+      for (const flag of bad) expect(a, `${id} review argv`).not.toContain(flag);
+    }
+    expect(argv("codex", "review").join(" ")).toContain("--sandbox read-only");
+    expect(argv("claude-code", "review").join(" ")).toContain("--disallowedTools Edit Write");
+  });
+
+  it("every agent knows how to report whether it is signed in", () => {
+    // doctor showed a green light for an installed-but-logged-out agent, which is
+    // the most common broken first run.
+    for (const a of Object.values(AGENT_CLIS)) {
+      expect(a.authProbe, `${a.id} authProbe`).toBeTruthy();
+      expect(a.authProbe!.args.length).toBeGreaterThan(0);
+    }
+    // Verified live against cursor-agent 2026.07.16: exits 0, prints "Not logged in".
+    expect(AGENT_CLIS.cursor.authProbe!.loggedOut.test("Not logged in")).toBe(true);
+    expect(AGENT_CLIS.cursor.authProbe!.loggedOut.test("Logged in as someone")).toBe(false);
+    expect(AGENT_CLIS["claude-code"].authProbe!.loggedOut.test('{"loggedIn":false}')).toBe(true);
+    expect(AGENT_CLIS["claude-code"].authProbe!.loggedOut.test('{"loggedIn":true}')).toBe(false);
+  });
+});
+
 describe("agent CLI registry", () => {
   it("composes headless args for each agent", () => {
     expect(AGENT_CLIS["claude-code"].runArgs("do x")).toEqual(["-p", "do x", "--permission-mode", "acceptEdits"]);
