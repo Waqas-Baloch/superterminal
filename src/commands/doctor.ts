@@ -52,7 +52,23 @@ export async function doctorCommand(): Promise<void> {
     }).catch(() => null);
     const version = v?.stdout?.trim().split("\n")[0]?.slice(0, 40) ?? "installed";
     const limited = await lastLimit(agent.id);
-    if (limited) warn(`${agent.title}  ${version}`, `hit its usage limit ${agoLabel(limited)}`);
+
+    // Installed is not the same as usable. Ask whether it is signed in, because
+    // "installed but logged out" is the most common broken first run and a green
+    // dot for it makes this whole command untrustworthy. Never print the probe's
+    // output — it can contain the account's email and org id.
+    let loggedOut = false;
+    if (agent.authProbe) {
+      const a = await execa(agent.bin, agent.authProbe.args, {
+        reject: false,
+        timeout: 10_000,
+        env: { ...process.env, PATH: pathWithLocalBin() },
+      }).catch(() => null);
+      loggedOut = agent.authProbe.loggedOut.test(`${a?.stdout ?? ""}\n${a?.stderr ?? ""}`);
+    }
+
+    if (loggedOut) warn(`${agent.title}  ${version}`, `installed but not signed in — ${agent.loginHint}`);
+    else if (limited) warn(`${agent.title}  ${version}`, `hit its usage limit ${agoLabel(limited)}`);
     else ok(`${agent.title}  ${pc.dim(version)}`);
   }
 

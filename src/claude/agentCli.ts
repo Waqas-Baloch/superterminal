@@ -176,6 +176,19 @@ export interface AgentCliDef {
   installHint: string;
   loginArgs: string[] | null; // interactive login after install; null = manual
   loginHint: string;
+  // How to ask this CLI whether it is actually signed in. `doctor` used to probe
+  // with `--version` alone and so showed a green light for an agent that was
+  // installed but logged out — a false all-clear from the one command whose job
+  // is answering "why isn't this working".
+  //
+  // Exit codes are useless here: `cursor-agent status` exits 0 while printing
+  // "Not logged in". So match the text, and match the NEGATIVE signal — an
+  // unrecognized response means "assume fine" rather than a false alarm.
+  //
+  // Privacy: some of these responses carry the account's email and org id
+  // (`claude auth status` does). Only the boolean may ever leave this function —
+  // never log the output, never put it in telemetry.
+  authProbe?: { args: string[]; loggedOut: RegExp };
   billingNote: string;
   runArgs: (prompt: string) => string[];
   continueArgs: (prompt: string) => string[];
@@ -230,8 +243,35 @@ export function applyMode(agent: AgentCliDef, args: string[], mode: SafetyMode):
     if (mode === "review") out.push("--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash");
     return out;
   }
-  // cursor: no verified flag surface on this machine — standard args, and the
-  // gate + post-run verification stay the backstop.
+  if (agent.id === "cursor") {
+    // Verified against cursor-agent 2026.07.16-899851b: `--mode ask|plan` are
+    // read-only execution modes, `--sandbox enabled|disabled` is a real flag,
+    // and both compose with `-p` and `--output-format stream-json`.
+    //
+    // Before this branch existed, applyMode returned Cursor's args untouched, so
+    // ALL FOUR modes sent the identical argv — `-p TASK --force`. That meant
+    // "review" ran the reviewer with "allow every command", and the safety dial
+    // silently did nothing.
+    if (mode === "review") {
+      // A reviewer that can edit isn't a reviewer. Strip the allow-everything
+      // switch and ask for the read-only mode. Note this flag is a promise from a
+      // CLI we don't ship, so it is NOT the guarantee — containReviewer() in
+      // core/review.ts verifies the outcome instead.
+      //
+      // Skip the prompt's own slot: it is free text (a manifest, a ticket title)
+      // and a plain indexOf would happily delete a prompt that equals "--force",
+      // leaving the real flag in place. `--yolo` is cursor-agent's documented
+      // alias for --force, so it has to go too.
+      const promptAt = out.indexOf("-p") + 1;
+      for (let i = out.length - 1; i >= 0; i--) {
+        if (i !== promptAt && (out[i] === "--force" || out[i] === "--yolo")) out.splice(i, 1);
+      }
+      out.push("--mode", "ask");
+    }
+    if (mode === "safe") out.push("--sandbox", "enabled");
+    if (mode === "full") out.push("--sandbox", "disabled");
+    return out;
+  }
   return out;
 }
 
@@ -276,6 +316,8 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     installHint: "install from claude.com/claude-code",
     loginArgs: null, // login runs inside the interactive TUI
     loginHint: "run `claude` once and log in with your Claude account",
+    // Emits JSON: {"loggedIn":true,"authMethod":…,"email":…}. Only the flag is read.
+    authProbe: { args: ["auth", "status"], loggedOut: /"loggedIn"\s*:\s*false/i },
     billingNote: "covered by your Claude Code login/subscription",
     runArgs: (p) => ["-p", p, "--permission-mode", "acceptEdits"],
     continueArgs: (p) => ["-c", "-p", p, "--permission-mode", "acceptEdits"],
@@ -293,13 +335,20 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     installHint: "install: curl https://cursor.com/install -fsS | bash",
     loginArgs: ["login"],
     loginHint: "run `cursor-agent login`",
+    // Verified live: `cursor-agent status` prints exactly "Not logged in", exit 0.
+    authProbe: { args: ["status"], loggedOut: /not logged in|authentication required/i },
     billingNote: "covered by your Cursor subscription",
     runArgs: (p) => ["-p", p, "--force"],
-    // cursor-agent has no reliable headless resume — repo state + error text carry the context
+    // `--continue` IS a real, working flag (verified: it returns "No previous
+    // chats found." rather than an unknown-option error), but it resumes
+    // cursor-agent's own last chat in this directory, which is not necessarily
+    // OUR last run — another terminal or a manual `cursor-agent` call would win.
+    // Restating the situation in the prompt is less elegant and more correct.
     continueArgs: (p) => ["-p", `You just made edits in this repository. ${p}`, "--force"],
-    // Cursor's stream-json (unverified here — cursor-agent not installed on the
-    // dev box). If the flag or schema differ, the shared parser simply won't
-    // recognize events and the run degrades to the wave + diff (never a blank).
+    // Flags verified against cursor-agent 2026.07.16-899851b. The stream-json
+    // EVENT SCHEMA is still unverified (needs a logged-in account); if it differs
+    // from Claude Code's, the shared parser just won't recognize events and the
+    // run degrades to the wave + diff — never a blank screen.
     jsonUsage: { args: ["--output-format", "stream-json"], parse: parseAgentEvent },
   },
   codex: {
@@ -311,6 +360,8 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     installHint: "install: npm i -g @openai/codex (or `brew install codex`)",
     loginArgs: ["login"],
     loginHint: "run `codex login` with your ChatGPT account",
+    // Verified live: prints "Logged in using ChatGPT" when authenticated.
+    authProbe: { args: ["login", "status"], loggedOut: /not logged in|no credentials|please run .*login/i },
     billingNote: "covered by your ChatGPT plan",
     // --skip-git-repo-check lets Codex run in folders that aren't git repos
     runArgs: (p) => ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", p],
