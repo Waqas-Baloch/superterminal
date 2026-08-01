@@ -115,6 +115,74 @@ Beta: teams up to 5 members, free.
 
 Claude Code, Cursor, and ChatGPT Codex. Super Terminal uses the subscription you already have — it never asks for a separate API key of its own.
 
+## Questions
+
+### Why does an AI coding agent change files I didn't ask it to?
+
+AI coding agents act on the most likely reading of a request, and when a request
+is ambiguous the most likely reading is often wrong. Ask one of two identical
+buttons to be removed and the agent has no way to know which, so it picks — or
+removes both. Super Terminal sorts every request into one of four bands and asks
+a clarifying question instead of guessing when the description matches more than
+one thing.
+
+### How do I make Cursor follow the rules in my CLAUDE.md?
+
+Cursor does not read `CLAUDE.md` — that file is Claude Code's, and Cursor uses
+`.cursorrules` instead. Super Terminal reads whichever instruction files a
+project already has, including `CLAUDE.md`, `.cursorrules` and `AGENTS.md`, and
+applies all of them to whichever agent runs the task.
+
+### Can I use the same coding rules for Claude Code, Cursor and Codex?
+
+Yes, with a tool that sits above all three. Each vendor reads only its own
+instruction file, so rules written for one are invisible to the others. Super
+Terminal reads every one of those files and gives their combined contents to
+whichever agent is running.
+
+### How can I have one AI review another AI's code?
+
+Run the two through a layer that is not owned by either vendor. Super Terminal
+has Claude Code write the change and a different vendor's agent review it against
+the project's rules, then reports what it found in plain English. The reviewer
+runs read-only and is verified read-only after the fact, because a reviewer that
+can edit is not a reviewer.
+
+### How do I verify an AI coding agent met the ticket's requirements?
+
+Parse the acceptance criteria out of the ticket and check each one separately
+after the run. Super Terminal pulls a ticket from GitHub Issues, Linear or Jira,
+finds its acceptance criteria, and has a second AI judge each criterion as met,
+not met, or unknown — then posts that summary back to the ticket if you approve
+it.
+
+### How do I undo everything an AI coding agent just did?
+
+Every Super Terminal run is backed up before it starts, so `super-t revert`
+restores the files an agent changed in one command. Multi-step workflows are
+covered too: a chain that goes wrong at step three rolls back all three steps,
+not just the last one.
+
+### What is Super Terminal?
+
+Super Terminal is a free command-line tool that sits between a developer and the
+AI coding agents they already pay for. Super Terminal makes Claude Code, Cursor
+and ChatGPT Codex follow one shared set of project rules, and has a different
+vendor's AI check the work before the developer keeps it. Super Terminal has no
+model of its own and writes no code.
+
+### Does Super Terminal need its own API key?
+
+No. Super Terminal uses the Claude, Cursor or ChatGPT subscription a developer
+already has, and never asks for a separate API key.
+
+### Is Super Terminal open source?
+
+Super Terminal is source-available, not open source. The full source is public
+and readable, the licence permits any use including commercial work, and each
+release becomes MIT two years after it ships. The single restriction is selling a
+competing product built from it.
+
 ## Privacy
 
 Your code goes only to the AI agent you chose, the same place it already goes when you use that agent directly. Super Terminal adds no separate destination for your source code.
