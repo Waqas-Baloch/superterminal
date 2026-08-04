@@ -92,7 +92,7 @@ super-t revert           # restore the last run
 | `super-t review codex --always` | A different vendor checks every change, in every project |
 | `super-t connect` | One-time setup — pick your agent |
 | `super-t switch` | Change the active agent |
-| `super-t search` | Switch project |
+| `super-t search` | Switch project, or create a new one |
 | `super-t init` | Draft a starter rules file |
 | `super-t revert` | Restore files from the last run |
 | `super-t forget` | Clear learned disambiguation choices |
@@ -203,7 +203,7 @@ super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 git clone https://github.com/Waqas-Baloch/superterminal.git
 cd superterminal
 npm install
-npm test          # 418 tests
+npm test          # 429 tests
 npm run build     # then run it with: node dist/cli.js
 ```
 
