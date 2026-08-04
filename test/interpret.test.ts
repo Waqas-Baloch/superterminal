@@ -78,3 +78,18 @@ describe("/skills", () => {
     expect(interpret("write a skill for the payment module").type).toBe("task");
   });
 });
+
+describe("/create", () => {
+  it("is reachable bare and with a kind", () => {
+    expect(interpret("/create").type).toBe("create");
+    expect(interpret("/create skill").type).toBe("create");
+    expect((interpret("/create skill") as { what: string }).what).toBe("skill");
+    expect((interpret("/create agent code-reviewer") as { what: string }).what).toBe("agent code-reviewer");
+    expect(interpret("super-t create skill").type).toBe("create");
+  });
+
+  it("does not hijack a task that happens to use the word", () => {
+    expect(interpret("create a login form").type).toBe("task");
+    expect(interpret("create new endpoints for billing").type).toBe("task");
+  });
+});

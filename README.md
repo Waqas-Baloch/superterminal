@@ -83,6 +83,8 @@ super-t revert           # restore the last run
 | `super-t resume [--with agent]` | Continue the last task — with any vendor |
 | `super-t doctor` | Check agents, connection, trackers, and project state |
 | `super-t skills sync` | One skill set for every agent — materialize to native formats |
+| `/create skill` · `/create agent` | Scaffold a new skill or agent from inside a session |
+| `/skills` | Search the skills this project can use |
 | `super-t team init` | Shared standards with admin approval (Git + GitHub, no server) |
 | `super-t team invite octocat` | Invite a developer by their GitHub username (beta: up to 5) |
 | `super-t team propose "why"` | Send your standards change for admin approval as a pull request |
@@ -201,7 +203,7 @@ super-t telemetry off    # or: SUPER_T_TELEMETRY=0, or DO_NOT_TRACK=1
 git clone https://github.com/Waqas-Baloch/superterminal.git
 cd superterminal
 npm install
-npm test          # 412 tests
+npm test          # 417 tests
 npm run build     # then run it with: node dist/cli.js
 ```
 

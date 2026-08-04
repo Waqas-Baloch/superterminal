@@ -171,6 +171,8 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
       await (await import("./doctor")).doctorCommand();
     } else if (cmd.type === "skills") {
       await browseSkills(process.cwd());
+    } else if (cmd.type === "create") {
+      await createArtifact(process.cwd(), cmd.what);
     } else if (cmd.type === "help") {
       printSessionHelp();
     } else if (cmd.type === "hint") {
@@ -219,6 +221,7 @@ type SessionCommand =
   | { type: "doctor" }
   | { type: "ticket"; id: string }
   | { type: "skills" }
+  | { type: "create"; what: string }
   | { type: "help" }
   | { type: "clear" }
   | { type: "menu" } // bare "/" or an unknown /command → show the command picker
@@ -233,7 +236,7 @@ type SessionCommand =
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
   const m = raw.match(
-    /^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|ticket|doctor|skills|help|clear|cls|team|init|revert|review|resume|tracker|feedback|forget|telemetry)\b\s*(.*)$/i,
+    /^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|ticket|doctor|skills|create|new|help|clear|cls|team|init|revert|review|resume|tracker|feedback|forget|telemetry)\b\s*(.*)$/i,
   );
   if (m) {
     const name = m[1].toLowerCase();
@@ -256,6 +259,9 @@ export function interpret(input: string): SessionCommand {
           `  Leave the session with ${pc.bold("/exit")}, then run it in your terminal.`,
       };
     }
+    // Before navCommand: that resolves bare words and would swallow the
+    // "skill" / "agent" argument.
+    if (name === "create" || name === "new") return { type: "create", what: rest };
     const nav = navCommand(name);
     if (nav) return nav;
     if (name === "ticket") return { type: "ticket", id: rest };
@@ -299,6 +305,7 @@ const MENU: SlashCommand[] = [
   { value: "ticket", title: "/ticket", description: "pick an assigned ticket and implement it, verified" },
   { value: "doctor", title: "/doctor", description: "check agents, connection, and project state" },
   { value: "skills", title: "/skills", description: "search the skills this project can use" },
+  { value: "create", title: "/create", description: "scaffold a new skill or agent" },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
   { value: "connect", title: "/connect", description: "set up or re-authenticate a provider" },
@@ -342,6 +349,9 @@ function navCommand(name: string): SessionCommand | null {
       return { type: "doctor" };
     case "skills":
       return { type: "skills" };
+    case "create":
+    case "new":
+      return { type: "create", what: "" };
     case "help":
       return { type: "help" };
     case "clear":
@@ -1209,4 +1219,132 @@ async function browseSkills(root: string): Promise<void> {
   }
   log.info("");
   log.dim("  This is injected automatically when a task matches it — nothing to run.");
+}
+
+/** A file name that is safe to build a path from, derived from a human's answer. */
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+/**
+ * Scaffold a skill or an agent.
+ *
+ * Both are just markdown with frontmatter, so the value here is not writing a
+ * file — it is writing the RIGHT frontmatter. A skill whose `when:` line is
+ * missing or wrong never fires, and nothing tells you: the task simply runs
+ * without it. That failure is silent and it is the reason this exists.
+ */
+async function createArtifact(root: string, hint: string): Promise<void> {
+  const wanted = hint.trim().toLowerCase();
+  let kind = wanted.startsWith("skill") ? "skill" : wanted.startsWith("agent") ? "agent" : "";
+
+  if (!kind) {
+    if (!process.stdin.isTTY) {
+      log.error("Say which: /create skill  or  /create agent");
+      return;
+    }
+    const { k } = await prompts({
+      type: "select",
+      name: "k",
+      message: "Create what?",
+      choices: [
+        { title: "Skill", description: "instructions Super Terminal injects when a task matches", value: "skill" },
+        { title: "Agent", description: "a Claude Code sub-agent — Super Terminal does not run these", value: "agent" },
+      ],
+    });
+    if (!k) return;
+    kind = k;
+  }
+
+  if (!process.stdin.isTTY) {
+    log.error(`Creating a ${kind} needs a terminal to ask in.`);
+    return;
+  }
+
+  // A name typed after the command is a name, not a slug — take it either way.
+  const given = wanted.replace(/^(skill|agent)\s*/, "").trim();
+  const answers = await prompts([
+    { type: given ? null : "text", name: "name", message: `${kind === "skill" ? "Skill" : "Agent"} name`, validate: (v: string) => (slugify(v) ? true : "Needs at least one letter or number") },
+    {
+      type: "text",
+      name: "description",
+      message: kind === "skill" ? "When should this be used?" : "What is this agent for?",
+      validate: (v: string) => (v && v.trim().length > 8 ? true : "A sentence — this is what decides whether it gets used"),
+    },
+    kind === "skill"
+      ? {
+          type: "text",
+          name: "when",
+          message: "Trigger words, comma-separated",
+          initial: "",
+        }
+      : { type: "text", name: "tools", message: "Tools it may use", initial: "Read, Grep, Glob, Bash" },
+  ]);
+  if (!answers.description) return; // escaped
+
+  const name = slugify(given || String(answers.name ?? ""));
+  if (!name) return;
+
+  const rel =
+    kind === "skill" ? nodePath.join(STATE_DIR, "skills", name, "SKILL.md") : nodePath.join(".claude", "agents", `${name}.md`);
+  const abs = nodePath.join(root, rel);
+
+  // Never clobber. Someone's existing skill is not ours to overwrite.
+  if (await fs.stat(abs).then(() => true).catch(() => false)) {
+    log.error(`${rel} already exists — pick another name, or edit that file.`);
+    return;
+  }
+
+  const body =
+    kind === "skill"
+      ? `---
+name: ${name}
+description: ${String(answers.description).trim()}
+${answers.when ? `when: ${String(answers.when).trim()}` : "# when: comma,separated,trigger,words — without these it matches on word overlap alone"}
+---
+
+Write the instructions here, addressed to whichever agent picks this up.
+
+Be specific about what to do and what not to do. This text is injected verbatim
+into the agent's prompt when a task matches, so vague guidance produces vague
+behaviour.
+`
+      : `---
+name: ${name}
+description: ${String(answers.description).trim()}
+tools: ${String(answers.tools ?? "Read, Grep, Glob, Bash").trim()}
+---
+
+You are ${name}. Describe the role, what it should do, and what it must not do.
+`;
+
+  await fs.mkdir(nodePath.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, body);
+
+  log.info("");
+  log.success(`Created ${rel}`);
+
+  if (kind === "skill") {
+    const reloaded = await loadSkills(root).catch(() => []);
+    const live = reloaded.find((s) => s.source === rel);
+    if (live) {
+      log.dim(
+        live.triggers.length > 0
+          ? `  Fires on: ${live.triggers.join(", ")}`
+          : "  No triggers set — it matches on word overlap with its name and description, which is weaker.",
+      );
+      log.dim(`  ${reloaded.length} skill(s) now available. Check them any time with /skills.`);
+    } else {
+      log.warn("  Written, but it did not load back — check the frontmatter.");
+    }
+  } else {
+    // Say this plainly rather than let it be discovered later.
+    log.dim("  This is a Claude Code sub-agent. Super Terminal does not read .claude/agents/,");
+    log.dim("  so it will not affect a Super Terminal run — Claude Code picks it up directly.");
+  }
+  log.dim(`  Edit it: ${rel}`);
 }
