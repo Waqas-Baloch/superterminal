@@ -32,3 +32,49 @@ describe("session input router", () => {
     expect(interpret("make the header sticky")).toEqual({ type: "task", task: "make the header sticky" });
   });
 });
+
+// Every `super-t <cmd>` form must be recognised, not just the twelve that were
+// whitelisted. Typing `super-t team init` at the session prompt used to fall
+// through as a task: it went to an agent, which found several files that could
+// plausibly match and stopped to ask which one to edit. The gate did its job on
+// a question it should never have been asked, and it cost a full round trip.
+describe("session prompt: shell commands are not tasks", () => {
+  const OUTSIDE = ["team", "init", "revert", "review", "resume", "tracker", "feedback", "forget", "telemetry"];
+
+  it.each(OUTSIDE)("`super-t %s` is answered, not sent to an agent", (name) => {
+    const r = interpret(`super-t ${name}`);
+    expect(r.type).toBe("hint");
+    expect((r as { message: string }).message).toMatch(/shell command/);
+  });
+
+  it("keeps the arguments in the hint, so it can be copied and run", () => {
+    const r = interpret("super-t team invite octocat") as { message: string };
+    expect(r.message).toContain("super-t team invite octocat");
+  });
+
+  it("does not hijack a task that merely starts with a command word", () => {
+    // The regex must anchor on the `super-t ` / `/` prefix, not the bare word.
+    expect(interpret("init the new payment module").type).toBe("task");
+    expect(interpret("review the checkout flow for bugs").type).toBe("task");
+    expect(interpret("revert the header to the old design").type).toBe("task");
+  });
+
+  it("still routes the commands the session CAN run", () => {
+    expect(interpret("super-t doctor").type).toBe("doctor");
+    expect(interpret("super-t ticket").type).toBe("ticket");
+    expect(interpret("/compare add rate limiting").type).toBe("compare");
+  });
+});
+
+describe("/skills", () => {
+  it("is reachable as a slash command, a bare word, and via super-t", () => {
+    expect(interpret("/skills").type).toBe("skills");
+    expect(interpret("skills").type).toBe("skills");
+    expect(interpret("super-t skills").type).toBe("skills");
+    expect(interpret("super-t skills sync").type).toBe("skills");
+  });
+
+  it("is not confused with a task about skills", () => {
+    expect(interpret("write a skill for the payment module").type).toBe("task");
+  });
+});

@@ -17,6 +17,7 @@ import { ensureTrusted } from "../core/trust";
 import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
+import { loadSkills } from "../core/skills";
 import { secondOpinion, resolveReviewer } from "../core/review";
 import { parseCriteria } from "../core/criteria";
 import { buildTicketTask, ticketCriteria } from "../trackers/ticketText";
@@ -57,7 +58,7 @@ import { openInEditor } from "../util/editor";
 import { log } from "../util/logger";
 import { track, firstRunNotice } from "../util/telemetry";
 import { printSelection, printSemanticSummary } from "./shared";
-import { stateDir, ensureStateDir } from "../util/paths";
+import { STATE_DIR, stateDir, ensureStateDir } from "../util/paths";
 
 const MAX_REPAIRS = 2;
 
@@ -168,6 +169,8 @@ export async function runCommand(taskArg: string | undefined, opts: RunOptions):
       }
     } else if (cmd.type === "doctor") {
       await (await import("./doctor")).doctorCommand();
+    } else if (cmd.type === "skills") {
+      await browseSkills(process.cwd());
     } else if (cmd.type === "help") {
       printSessionHelp();
     } else if (cmd.type === "hint") {
@@ -215,6 +218,7 @@ type SessionCommand =
   | { type: "search" }
   | { type: "doctor" }
   | { type: "ticket"; id: string }
+  | { type: "skills" }
   | { type: "help" }
   | { type: "clear" }
   | { type: "menu" } // bare "/" or an unknown /command → show the command picker
@@ -228,12 +232,30 @@ type SessionCommand =
  */
 export function interpret(input: string): SessionCommand {
   const raw = input.trim();
-  const m = raw.match(/^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|ticket|doctor|help|clear|cls)\b\s*(.*)$/i);
+  const m = raw.match(
+    /^(?:\/|super-t\s+)(run|plan|flow|compare|switch|connect|search|ticket|doctor|skills|help|clear|cls|team|init|revert|review|resume|tracker|feedback|forget|telemetry)\b\s*(.*)$/i,
+  );
   if (m) {
     const name = m[1].toLowerCase();
     // People naturally type `super-t flow "…"` inside the session — drop the
     // quotes so they don't leak into the first and last step.
     const rest = m[2].trim().replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
+    // These change global or project state and are not safe to run inside a
+    // session that already has an agent, a root and follow-up memory loaded.
+    // Before this existed they fell through as tasks: typing `super-t team init`
+    // sent "super-t team init" to an agent, which found several files that could
+    // plausibly match and asked which to edit — the gate doing its job on a
+    // question it should never have been asked.
+    const OUTSIDE = ["team", "init", "revert", "review", "resume", "tracker", "feedback", "forget", "telemetry"];
+    if (OUTSIDE.includes(name)) {
+      const full = `super-t ${name}${rest ? ` ${rest}` : ""}`;
+      return {
+        type: "hint",
+        message:
+          `${pc.cyan(full)} is a shell command, not a task.\n` +
+          `  Leave the session with ${pc.bold("/exit")}, then run it in your terminal.`,
+      };
+    }
     const nav = navCommand(name);
     if (nav) return nav;
     if (name === "ticket") return { type: "ticket", id: rest };
@@ -276,6 +298,7 @@ const MENU: SlashCommand[] = [
   { value: "compare", title: "/compare", description: "same task through every agent", arg: true },
   { value: "ticket", title: "/ticket", description: "pick an assigned ticket and implement it, verified" },
   { value: "doctor", title: "/doctor", description: "check agents, connection, and project state" },
+  { value: "skills", title: "/skills", description: "search the skills this project can use" },
   { value: "switch", title: "/switch", description: "change the coding agent" },
   { value: "search", title: "/search", description: "switch to another project" },
   { value: "connect", title: "/connect", description: "set up or re-authenticate a provider" },
@@ -317,6 +340,8 @@ function navCommand(name: string): SessionCommand | null {
       return { type: "search" };
     case "doctor":
       return { type: "doctor" };
+    case "skills":
+      return { type: "skills" };
     case "help":
       return { type: "help" };
     case "clear":
@@ -1107,4 +1132,81 @@ function hintAuth(err: unknown): void {
   if (err instanceof Anthropic.AuthenticationError || msg.includes("authentication method")) {
     log.info("Credentials were rejected or missing. Run `super-t connect` to (re)connect.");
   }
+}
+
+/**
+ * Search the skills this project can actually use.
+ *
+ * Skills are easy to lose track of: they live in three different places
+ * (`<state>/skills/`, `.claude/skills/` as a folder, and as loose `.md` files),
+ * they only reach an agent when a task happens to match them, and nothing until
+ * now would tell you which ones existed. Typing a task and hoping is not a way
+ * to find out.
+ *
+ * Typing filters as you go, so this doubles as a way to check whether a skill
+ * WOULD match before committing a task to it.
+ */
+async function browseSkills(root: string): Promise<void> {
+  const skills = await loadSkills(root).catch(() => [] as Awaited<ReturnType<typeof loadSkills>>);
+
+  log.info("");
+  if (skills.length === 0) {
+    log.warn("No skills found in this project.");
+    log.dim(`  Super Terminal looks in ${STATE_DIR}/skills/*/SKILL.md, .claude/skills/*/SKILL.md and .claude/skills/*.md`);
+    log.dim("  Already have some for another agent? `super-t skills import` picks them up.");
+    return;
+  }
+
+  log.info(pc.bold(`${skills.length} skill${skills.length === 1 ? "" : "s"} available here`));
+  log.dim("  Type to filter by name, description or trigger word.");
+
+  if (!process.stdin.isTTY) {
+    // No terminal to search in — print them all rather than hanging on a prompt.
+    for (const s of skills) log.info(`  ${pc.bold(s.name)} — ${s.description || "(no description)"}  ${pc.dim(s.source)}`);
+    return;
+  }
+
+  const { pick } = await prompts({
+    type: "autocomplete",
+    name: "pick",
+    message: "Which skill?",
+    limit: 12,
+    choices: skills.map((s) => ({
+      title: s.name,
+      description: s.description ? s.description.slice(0, 72) : s.source,
+      value: s.source,
+    })),
+    // Match the trigger words too — those are what actually decide whether a
+    // skill fires, so searching without them would hide the real answer.
+    suggest: async (input: string, choices: prompts.Choice[]) => {
+      const q = String(input ?? "").toLowerCase().trim();
+      if (!q) return choices;
+      return choices.filter((c) => {
+        const s = skills.find((k) => k.source === c.value);
+        const hay = `${c.title} ${c.description ?? ""} ${s?.triggers.join(" ") ?? ""} ${s?.body.slice(0, 400) ?? ""}`;
+        return hay.toLowerCase().includes(q);
+      });
+    },
+  });
+
+  const chosen = skills.find((s) => s.source === pick);
+  if (!chosen) return; // escaped
+
+  log.info("");
+  log.info(pc.bold(chosen.name));
+  log.dim(`  ${chosen.source}`);
+  if (chosen.description) log.info(`  ${chosen.description}`);
+  log.info(
+    chosen.triggers.length > 0
+      ? `  ${pc.dim("Fires on:")} ${chosen.triggers.join(", ")}`
+      : `  ${pc.dim("No explicit triggers — matched by word overlap with its name and description.")}`,
+  );
+  const preview = chosen.body.trim().split("\n").slice(0, 8).join("\n");
+  if (preview) {
+    log.info("");
+    for (const line of preview.split("\n")) log.dim(`  ${line.slice(0, 96)}`);
+    if (chosen.body.trim().split("\n").length > 8) log.dim("  …");
+  }
+  log.info("");
+  log.dim("  This is injected automatically when a task matches it — nothing to run.");
 }
