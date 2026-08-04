@@ -37,6 +37,12 @@ export async function loadSkills(root: string): Promise<Skill[]> {
   }
 
   const skills: Skill[] = [];
+  // The same skill often exists in two places at once — kept in .claude/skills/
+  // for Claude Code and mirrored into <state>/skills/ by `skills sync`. Loading
+  // both wastes one of the three manifest slots on a duplicate, which can crowd
+  // out a skill that would genuinely have applied. First path wins; the sort
+  // above makes that deterministic.
+  const seen = new Set<string>();
   for (const rel of [...files].sort()) {
     const raw = (await fs.readFile(nodePath.join(root, rel), "utf8").catch(() => "")).trim();
     if (!raw) continue;
@@ -45,8 +51,11 @@ export async function loadSkills(root: string): Promise<Skill[]> {
     const fallbackName = nodePath.basename(nodePath.dirname(rel)) === "skills"
       ? nodePath.basename(rel).replace(/\.md$/i, "")
       : nodePath.basename(nodePath.dirname(rel));
+    const name = meta.name || fallbackName;
+    if (seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
     skills.push({
-      name: meta.name || fallbackName,
+      name,
       description: meta.description || "",
       triggers: splitList(meta.when ?? meta.triggers ?? ""),
       body,

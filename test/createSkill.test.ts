@@ -52,3 +52,29 @@ describe("a skill created by /create", () => {
     expect(matchSkills("add a login form to the checkout page", skills)).toHaveLength(0);
   });
 });
+
+// A skill kept in .claude/skills/ for Claude Code and mirrored into
+// <state>/skills/ by `skills sync` used to load twice. Only three skills reach
+// the manifest, so a duplicate can silently crowd out one that would have
+// applied — the task then runs without it and looks fine.
+describe("the same skill in two places loads once", () => {
+  let dupDir: string;
+
+  beforeAll(async () => {
+    dupDir = await fs.mkdtemp(path.join(os.tmpdir(), "st-dup-"));
+    const same = `---\nname: shared\ndescription: present in both locations\nwhen: shared\n---\n\nBody.\n`;
+    for (const p of [path.join(dupDir, STATE_DIR, "skills", "shared"), path.join(dupDir, ".claude", "skills", "shared")]) {
+      await fs.mkdir(p, { recursive: true });
+      await fs.writeFile(path.join(p, "SKILL.md"), same);
+    }
+  });
+
+  afterAll(async () => {
+    await fs.rm(dupDir, { recursive: true, force: true });
+  });
+
+  it("loads one copy, not two", async () => {
+    const skills = await loadSkills(dupDir);
+    expect(skills.filter((s) => s.name === "shared")).toHaveLength(1);
+  });
+});
