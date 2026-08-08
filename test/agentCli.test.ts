@@ -73,6 +73,23 @@ describe("safety dial reaches every agent, not just Claude Code", () => {
     expect(AGENT_CLIS["claude-code"].authProbe!.loggedOut.test('{"loggedIn":false}')).toBe(true);
     expect(AGENT_CLIS["claude-code"].authProbe!.loggedOut.test('{"loggedIn":true}')).toBe(false);
   });
+
+  // Strings captured from the real CLIs. A false "signed out" is worse than the
+  // bug it guards against: it would block `connect` for someone already signed
+  // in, so the logged-in forms matter as much as the logged-out ones.
+  it("reads each vendor's real auth output correctly", () => {
+    const cursor = AGENT_CLIS.cursor.authProbe!.loggedOut;
+    expect(cursor.test("Not logged in")).toBe(true);
+    expect(cursor.test("Logged in as waqas@example.com")).toBe(false);
+
+    const codex = AGENT_CLIS.codex.authProbe!.loggedOut;
+    expect(codex.test("Not logged in")).toBe(true);
+    expect(codex.test("Logged in using ChatGPT")).toBe(false);
+
+    const claude = AGENT_CLIS["claude-code"].authProbe!.loggedOut;
+    expect(claude.test('{\n  "loggedIn": true,\n  "authMethod": "claude.ai"\n}')).toBe(false);
+    expect(claude.test('{\n  "loggedIn": false\n}')).toBe(true);
+  });
 });
 
 describe("agent CLI registry", () => {

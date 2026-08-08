@@ -106,9 +106,49 @@ export async function applyProvider(provider: ProviderId): Promise<boolean> {
     if (!(await installAgent(agent))) return false;
     await loginAgent(agent);
   }
+
+  // Installed is not the same as signed in, and this is where that used to be
+  // assumed. Login previously ran ONLY inside the branch above — so anyone who
+  // already had the CLI (the common case) skipped it entirely and was told
+  // "Using Cursor — via your cursor-agent login" while cursor-agent was
+  // reporting "Not logged in". Connect claimed success and the first real task
+  // then failed on an auth error, with nothing connecting the two.
+  if (await isSignedOut(agent)) {
+    log.info("");
+    log.warn(`${agent.title} is installed but not signed in.`);
+    await loginAgent(agent);
+
+    // Check again rather than assume the login took. A browser flow can be
+    // closed, cancelled, or completed as the wrong account.
+    if (await isSignedOut(agent)) {
+      log.error(`Still not signed in to ${agent.title}. Nothing saved.`);
+      log.dim(`  ${agent.loginHint}, then run \`super-t connect\` again.`);
+      return false;
+    }
+  }
+
   await saveGlobalConfig({ provider: agent.id, apiKey: existing?.apiKey });
   log.success(`Using ${agent.title} — via your \`${agent.bin}\` login.`);
   return true;
+}
+
+/**
+ * Is this agent's CLI installed but logged out?
+ *
+ * Exit codes are useless here — `cursor-agent status` exits 0 while printing
+ * "Not logged in" — so the probe matches the negative signal in the text, and an
+ * unrecognized response counts as signed in rather than raising a false alarm.
+ */
+async function isSignedOut(agent: AgentCliDef): Promise<boolean> {
+  if (!agent.authProbe) return false; // nothing to check against
+  const r = await execa(agent.bin, agent.authProbe.args, {
+    reject: false,
+    timeout: 15_000,
+    env: { ...process.env, PATH: pathWithLocalBin() },
+  }).catch(() => null);
+  if (!r) return false;
+  // Never log this — `claude auth status` returns the account email and org id.
+  return agent.authProbe.loggedOut.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
 }
 
 async function verify(client: Anthropic, opts?: { quiet?: boolean }): Promise<boolean> {
