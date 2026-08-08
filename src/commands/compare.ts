@@ -10,6 +10,7 @@ import { generateManifest } from "../core/manifest";
 import {
   AGENT_CLIS,
   runAgent,
+  isAgentInstalled,
   pathWithLocalBin,
   composeArgs,
   isLimitError,
@@ -333,10 +334,6 @@ async function backupThenApply(root: string, files: FileChange[]): Promise<void>
   }
 }
 
-async function isInstalled(bin: string): Promise<boolean> {
-  const r = await execa("which", [bin], {
-    reject: false,
-    env: { ...process.env, PATH: pathWithLocalBin() },
-  }).catch(() => null);
-  return r !== null && r.exitCode === 0;
-}
+// Same check as agentCli's isAgentInstalled, and for the same reason: `which`
+// does not exist on Windows.
+const isInstalled = isAgentInstalled;

@@ -378,17 +378,44 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
   },
 };
 
-/** Is this agent's CLI actually on PATH? */
+/**
+ * Is this agent's CLI actually on PATH?
+ *
+ * Asks the binary itself rather than asking the OS where it lives. `which` does
+ * not exist on Windows — it is `where` — so every agent looked uninstalled
+ * there, and `connect` had nothing to offer. Running `<bin> --version` works
+ * identically on all three platforms and answers a better question anyway: not
+ * "is there a file somewhere" but "does this actually run".
+ */
 export async function isAgentInstalled(bin: string): Promise<boolean> {
-  const r = await execa("which", [bin], { reject: false, env: { ...process.env, PATH: pathWithLocalBin() } }).catch(() => null);
-  return r !== null && r.exitCode === 0;
+  const r = await execa(bin, ["--version"], {
+    reject: false,
+    timeout: 10_000,
+    env: { ...process.env, PATH: pathWithLocalBin() },
+  }).catch(() => null);
+  // A non-zero exit still proves the binary exists and ran; only a spawn failure
+  // (ENOENT) means it is genuinely absent, and that is what the catch above sees.
+  return r !== null && r.exitCode !== undefined;
 }
 
-/** Installers often drop binaries in ~/.local/bin, which may not be on PATH yet. */
+/**
+ * Installers often drop binaries in ~/.local/bin, which may not be on PATH yet.
+ *
+ * This is handed to every child process as env.PATH, so getting it wrong breaks
+ * everything rather than one feature. It previously split and joined on ":",
+ * which on Windows cuts PATH apart at the drive letter — "C:\Users\…" becomes
+ * ["C", "\Users\…"] — and then produced a PATH the OS cannot parse. Node exposes
+ * the correct separator; use it.
+ */
 export function pathWithLocalBin(): string {
-  const local = nodePath.join(os.homedir(), ".local", "bin");
   const current = process.env.PATH ?? "";
-  return current.split(":").includes(local) ? current : `${local}:${current}`;
+  // ~/.local/bin is a POSIX convention. Windows installers do not use it, so
+  // there is nothing to add and no reason to touch a working PATH.
+  if (process.platform === "win32") return current;
+
+  const local = nodePath.join(os.homedir(), ".local", "bin");
+  const parts = current.split(nodePath.delimiter);
+  return parts.includes(local) ? current : `${local}${nodePath.delimiter}${current}`;
 }
 
 export async function runAgent(
