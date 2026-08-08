@@ -3,7 +3,14 @@ import { spin } from "../report/spinner";
 import pc from "picocolors";
 import prompts from "prompts";
 import Anthropic from "@anthropic-ai/sdk";
-import { AGENT_CLIS, pathWithLocalBin, type AgentCliDef } from "../claude/agentCli";
+import {
+  AGENT_CLIS,
+  installCommandFor,
+  installHintFor,
+  isAgentInstalled,
+  pathWithLocalBin,
+  type AgentCliDef,
+} from "../claude/agentCli";
 import { loadGlobalConfig, saveGlobalConfig, type AgentCliId } from "../util/globalConfig";
 import { log } from "../util/logger";
 
@@ -39,13 +46,25 @@ export function providerChoices(opts: {
       title: `${opts.hasAnt ? "Browser login (Anthropic CLI)" : "Browser login — requires the `ant` CLI"}${mark("oauth")}`,
       description: opts.hasAnt
         ? "no key to manage — opens your browser via `ant auth login`"
-        : "install first: brew install anthropics/tap/ant",
+        : // `ant` ships through Homebrew, which is macOS/Linux. Naming a package
+          // manager the user cannot have is the same wrong answer as a `curl |
+          // bash` line on Windows — say what is actually true there instead.
+          process.platform === "win32"
+          ? "not available on Windows yet — use an API key or an agent below"
+          : "install first: brew install anthropics/tap/ant",
       value: "oauth",
       disabled: !opts.hasAnt,
     },
     ...Object.values(AGENT_CLIS).map((a) => ({
       title: `${a.title}${opts.installed[a.id] ? "" : " — not installed yet"}${mark(a.id)}`,
-      description: opts.installed[a.id] ? `${a.billingNote}; via \`${a.bin}\`` : `I can install it (${a.installCmd})`,
+      description: opts.installed[a.id]
+        ? `${a.billingNote}; via \`${a.bin}\``
+        : a.installArgs
+          ? `I can install it (${installCommandFor(a)})`
+          : // No installArgs means the vendor's method pipes a downloaded
+            // script into a shell, which Super Terminal shows but will not run.
+            // Offering "I can install it" there is a promise it then breaks.
+            `you run: ${installCommandFor(a)}`,
       value: a.id,
     })),
   ];
@@ -133,20 +152,37 @@ export async function applyProvider(provider: ProviderId): Promise<boolean> {
 }
 
 /**
- * Is this agent's CLI installed but logged out?
+ * Is this agent's CLI unusable — missing, or installed and logged out?
  *
- * Exit codes are useless here — `cursor-agent status` exits 0 while printing
- * "Not logged in" — so the probe matches the negative signal in the text, and an
- * unrecognized response counts as signed in rather than raising a false alarm.
+ * Exit codes are useless for the logged-out half: `cursor-agent status` exits 0
+ * while printing "Not logged in". So the probe matches the negative signal in
+ * the text, and an unrecognized response counts as signed in rather than
+ * raising a false alarm.
+ *
+ * That leniency is the whole design, and it is only safe once "the CLI isn't
+ * there" has been ruled out first — otherwise the shell's own error text is
+ * just another unrecognized response, and connect green-lights an agent the
+ * machine has never had.
  */
-async function isSignedOut(agent: AgentCliDef): Promise<boolean> {
+export async function isSignedOut(agent: AgentCliDef): Promise<boolean> {
   if (!agent.authProbe) return false; // nothing to check against
+  // Resolved in Node, so the answer is the same on every platform: a CLI that
+  // is not on PATH cannot be signed in, whatever a shell would print when asked
+  // to run it. Windows is why this comes first — there, spawning a missing
+  // command goes through cmd.exe, which answers with an ordinary exit code and
+  // a "not recognized" line that looks nothing like "not logged in".
+  if (!(await isAgentInstalled(agent.bin))) return true;
   const r = await execa(agent.bin, agent.authProbe.args, {
     reject: false,
     timeout: 15_000,
     env: { ...process.env, PATH: pathWithLocalBin() },
   }).catch(() => null);
-  if (!r) return false;
+  // "Assume signed in" is the right answer to a reply we don't recognize. It is
+  // the wrong answer to no reply at all: a probe that never started says the
+  // CLI isn't runnable, and calling that signed in is how connect certified an
+  // agent that wasn't installed. Only a spawn failure counts here — a timeout
+  // or a signal must not push someone through a login they don't need.
+  if (!r || r.code === "ENOENT") return true;
   // Never log this — `claude auth status` returns the account email and org id.
   return agent.authProbe.loggedOut.test(`${r.stdout ?? ""}\n${r.stderr ?? ""}`);
 }
@@ -169,15 +205,19 @@ async function installAgent(agent: AgentCliDef): Promise<boolean> {
   // `npm install -g …` is a plain command: we can execute it as an argument
   // array, with no shell involved at all.
   //
-  // The others are the vendors' own `curl … | bash`. A pipe needs a shell, and
-  // piping a downloaded script into a shell means whoever controls that URL
-  // controls this machine. That is the vendors' documented method and it may
-  // well be fine — but Super Terminal will not be the thing that runs remote
-  // code for you. We print it; you decide.
+  // The others are the vendors' own `curl … | bash` (`irm … | iex` on Windows).
+  // A pipe needs a shell, and piping a downloaded script into a shell means
+  // whoever controls that URL controls this machine. That is the vendors'
+  // documented method and it may well be fine — but Super Terminal will not be
+  // the thing that runs remote code for you. We print it; you decide.
+  //
+  // Whatever we print has to be runnable in the shell the user is actually in.
+  const cmd = installCommandFor(agent);
   if (!agent.installArgs) {
     log.info("");
     log.info(`${agent.title} installs with the vendor's own script:`);
-    log.info(`  ${pc.bold(agent.installCmd)}`);
+    log.info(`  ${pc.bold(cmd)}`);
+    if (process.platform === "win32") log.dim("  (PowerShell — not cmd.exe)");
     log.dim("  That downloads a script and runs it. Super Terminal won't run remote code for you —");
     log.dim("  copy the line above, run it yourself, then rerun `super-t connect`.");
     return false;
@@ -186,14 +226,14 @@ async function installAgent(agent: AgentCliDef): Promise<boolean> {
   const { go } = await prompts({
     type: "confirm",
     name: "go",
-    message: `${agent.title} CLI isn't installed. Install it now? (${agent.installCmd})`,
+    message: `${agent.title} CLI isn't installed. Install it now? (${cmd})`,
     initial: true,
   });
   if (!go) {
-    log.info(`Skipped. Install manually — ${agent.installHint} — then rerun.`);
+    log.info(`Skipped. Install manually — ${installHintFor(agent)} — then rerun.`);
     return false;
   }
-  log.info(pc.dim(`$ ${agent.installCmd}`));
+  log.info(pc.dim(`$ ${cmd}`));
   const [bin, ...rest] = agent.installArgs;
   const result = await execa(bin, rest, {
     stdio: "inherit",
@@ -203,10 +243,18 @@ async function installAgent(agent: AgentCliDef): Promise<boolean> {
   });
   if (result.exitCode !== 0 || !(await binExists(agent.bin))) {
     log.error(`Install did not complete (${agent.bin} still not found).`);
-    if (agent.id === "codex") {
-      log.info("Global npm can need elevated permissions — try `brew install codex` or `sudo npm i -g @openai/codex`.");
+    // A failed global npm install is nearly always the npm prefix being
+    // unwritable. The remedy differs per vendor — Anthropic explicitly warns
+    // against `sudo npm i -g` for Claude Code — so name the cause and let the
+    // per-platform hint carry the alternative rather than guessing one here.
+    if (agent.installArgs?.[0] === "npm") {
+      log.info(
+        process.platform === "win32"
+          ? "A global npm install can need an elevated terminal, or npm's prefix may not be writable."
+          : "A global npm install can need elevated permissions, or npm's prefix may not be writable.",
+      );
     }
-    log.info(`Manual route: ${agent.installHint}`);
+    log.info(`Manual route: ${installHintFor(agent)}`);
     return false;
   }
   log.success(`${agent.title} CLI installed`);
@@ -230,15 +278,25 @@ async function loginAgent(agent: AgentCliDef): Promise<void> {
   }
 }
 
-async function binExists(cmd: string): Promise<boolean> {
-  try {
-    const result = await execa(cmd, ["--version"], {
-      reject: false,
-      timeout: 10_000,
-      env: { ...process.env, PATH: pathWithLocalBin() },
-    });
-    return result.exitCode !== undefined;
-  } catch {
-    return false;
-  }
-}
+/**
+ * Is this binary on PATH?
+ *
+ * This file used to answer that with its own copy of the check: spawn
+ * `<bin> --version` and treat a defined exit code as proof. agentCli replaced
+ * that everywhere else when Windows CI caught it — on POSIX a missing binary
+ * yields ENOENT and no exit code, but on Windows the call routes through
+ * cmd.exe, which returns an exit code regardless, so EVERY agent read as
+ * installed.
+ *
+ * The copy here survived that fix, and connect is the command it breaks worst.
+ * With every agent reported installed on Windows: the picker offered agents
+ * that were not there, applyProvider skipped install AND login entirely, and
+ * isSignedOut then probed a binary that did not exist and read the shell's
+ * "not recognized" reply as an unrecognized-but-fine answer. Connect saved the
+ * provider and announced "Using Cursor — via your `cursor-agent` login" without
+ * a browser ever opening.
+ *
+ * There is one implementation now, shared with doctor/run/flow/review/compare,
+ * and it walks PATH in Node rather than guessing from a subprocess.
+ */
+const binExists = isAgentInstalled;

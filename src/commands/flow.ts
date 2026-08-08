@@ -17,6 +17,7 @@ import { loadSkills } from "../core/skills";
 import {
   AGENT_CLIS,
   runAgent,
+  installHintFor,
   isAgentInstalled,
   AgentLimitError,
   type AgentCliDef,
@@ -54,7 +55,7 @@ async function pickSubstitute(
 
   log.info("");
   log.warn(`${wanted.title} isn't installed.`);
-  log.dim(`  ${wanted.installHint}`);
+  log.dim(`  ${installHintFor(wanted)}`);
   const { choice } = await prompts({
     type: "select",
     name: "choice",
@@ -127,7 +128,7 @@ export async function flowCommand(input: string, opts: { budget?: string; yes?: 
     const stand = substitutions.get(wanted.id) ?? null;
     if (!stand) {
       log.error(`${wanted.title} isn't installed (needed for "${step.task}").`);
-      log.dim(`  ${wanted.installHint}`);
+      log.dim(`  ${installHintFor(wanted)}`);
       await track("error", root, { code: "agent_missing", agent: wanted.id });
       process.exitCode = 1;
       return;

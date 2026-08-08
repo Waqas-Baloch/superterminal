@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { AGENT_CLIS, isAgentInstalled } from "../claude/agentCli";
+import { AGENT_CLIS, installHintFor, isAgentInstalled } from "../claude/agentCli";
 import { agentFrom } from "../core/flow";
 import { loadConfig, updateProjectConfig } from "../util/config";
 import { loadRules } from "../core/rules";
@@ -60,7 +60,7 @@ export async function reviewCommand(arg?: string, opts: { always?: boolean } = {
   }
   if (!(await isAgentInstalled(AGENT_CLIS[id].bin))) {
     log.error(`${AGENT_CLIS[id].title} isn't installed, so it can't review anything.`);
-    log.dim(`  ${AGENT_CLIS[id].installHint}`);
+    log.dim(`  ${installHintFor(AGENT_CLIS[id])}`);
     process.exitCode = 1;
     return;
   }

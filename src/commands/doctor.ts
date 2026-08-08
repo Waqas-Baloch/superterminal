@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import pc from "picocolors";
 import { execa } from "execa";
-import { AGENT_CLIS, isAgentInstalled, pathWithLocalBin } from "../claude/agentCli";
+import { AGENT_CLIS, installHintFor, isAgentInstalled, pathWithLocalBin } from "../claude/agentCli";
 import { resolveAuth, loadGlobalConfig } from "../util/globalConfig";
 import { lastLimit, agoLabel } from "../util/limits";
 import { status as telemetryStatus } from "../util/telemetry";
@@ -42,7 +42,7 @@ export async function doctorCommand(): Promise<void> {
   log.info(pc.bold("  Agents"));
   for (const agent of Object.values(AGENT_CLIS)) {
     if (!(await isAgentInstalled(agent.bin))) {
-      warn(`${agent.title} not installed`, agent.installHint);
+      warn(`${agent.title} not installed`, installHintFor(agent));
       continue;
     }
     const v = await execa(agent.bin, ["--version"], {

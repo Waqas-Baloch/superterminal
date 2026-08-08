@@ -129,16 +129,23 @@ describe("no shell, ever: install commands can't become code execution", () => {
         expect(a.installArgs.join(" ")).not.toMatch(/[|;&><$`]/);
       } else {
         // Not runnable by us — it pipes a download into a shell, so we display
-        // it and the user runs it knowingly.
+        // it and the user runs it knowingly. That holds for the Windows form
+        // too: `irm … | iex` is the same bargain in PowerShell's vocabulary.
         expect(a.installCmd).toMatch(/\|/);
+        if (a.installCmdWin) expect(a.installCmdWin).toMatch(/\|/);
       }
     }
   });
 
-  it("codex installs via argv; the curl|bash vendors do not run through us", async () => {
+  it("installs the vendors' own npm packages by argv, and runs no vendor script", async () => {
     const { AGENT_CLIS } = await import("../src/claude/agentCli");
     expect(AGENT_CLIS.codex.installArgs).toEqual(["npm", "install", "-g", "@openai/codex"]);
-    expect(AGENT_CLIS["claude-code"].installArgs).toBeUndefined();
+    // Anthropic's own package, and the only Claude Code route that needs no
+    // shell — so it is the one Super Terminal can run on the user's behalf.
+    expect(AGENT_CLIS["claude-code"].installArgs).toEqual(["npm", "install", "-g", "@anthropic-ai/claude-code"]);
+    // Cursor stays display-only: it publishes no CLI package of its own, and
+    // the `cursor-agent` name on npm belongs to an unrelated third party, so
+    // installing it by that name would be a supply-chain hazard, not a fix.
     expect(AGENT_CLIS.cursor.installArgs).toBeUndefined();
   });
 });

@@ -175,6 +175,15 @@ export interface AgentCliDef {
   // which Super Terminal will display but refuses to execute on your behalf.
   installArgs?: string[];
   installHint: string;
+  // The vendors' install lines are shell-specific. `curl … | bash` is not a
+  // thing in cmd.exe, and in PowerShell `curl` is an alias for
+  // Invoke-WebRequest — so printing the POSIX line to a Windows user is worse
+  // than printing nothing, because it looks like an answer. Set these wherever
+  // the vendor documents a different Windows command; installCommandFor() and
+  // installHintFor() pick per platform, falling back to the POSIX text only
+  // when it genuinely runs everywhere (npm does).
+  installCmdWin?: string;
+  installHintWin?: string;
   loginArgs: string[] | null; // interactive login after install; null = manual
   loginHint: string;
   // How to ask this CLI whether it is actually signed in. `doctor` used to probe
@@ -313,8 +322,16 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     id: "claude-code",
     title: "Claude Code",
     bin: "claude",
-    installCmd: "curl -fsSL https://claude.ai/install.sh | bash",
-    installHint: "install from claude.com/claude-code",
+    // The vendor recommends its native installer, but that is `curl … | bash`
+    // (and `irm … | iex` on Windows) — remote code piped into a shell, which
+    // this tool will not run for you. The npm package is Anthropic's own, ships
+    // the same native binary, and covers win32-x64/arm64 — so it is the one
+    // route Super Terminal can actually execute, on every platform. The native
+    // and winget lines stay in the hint for anyone who prefers them.
+    installCmd: "npm install -g @anthropic-ai/claude-code",
+    installArgs: ["npm", "install", "-g", "@anthropic-ai/claude-code"], // no shell needed
+    installHint: "install: npm i -g @anthropic-ai/claude-code (or curl -fsSL https://claude.ai/install.sh | bash)",
+    installHintWin: "install: npm i -g @anthropic-ai/claude-code (or winget install Anthropic.ClaudeCode)",
     loginArgs: null, // login runs inside the interactive TUI
     loginHint: "run `claude` once and log in with your Claude account",
     // Emits JSON: {"loggedIn":true,"authMethod":…,"email":…}. Only the flag is read.
@@ -332,8 +349,13 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     id: "cursor",
     title: "Cursor",
     bin: "cursor-agent",
+    // No npm route: the `cursor-agent` name on npm belongs to an unrelated
+    // third-party package, not to Cursor. So this one stays a vendor script on
+    // every platform, and Super Terminal prints it rather than running it.
     installCmd: "curl https://cursor.com/install -fsS | bash",
+    installCmdWin: "irm 'https://cursor.com/install?win32=true' | iex",
     installHint: "install: curl https://cursor.com/install -fsS | bash",
+    installHintWin: "install from cursor.com/docs/cli/installation (PowerShell: irm 'https://cursor.com/install?win32=true' | iex)",
     loginArgs: ["login"],
     loginHint: "run `cursor-agent login`",
     // Verified live: `cursor-agent status` prints exactly "Not logged in", exit 0.
@@ -359,6 +381,7 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     installCmd: "npm install -g @openai/codex",
     installArgs: ["npm", "install", "-g", "@openai/codex"], // no shell needed
     installHint: "install: npm i -g @openai/codex (or `brew install codex`)",
+    installHintWin: "install: npm i -g @openai/codex", // no brew on Windows
     loginArgs: ["login"],
     loginHint: "run `codex login` with your ChatGPT account",
     // Verified live: prints "Logged in using ChatGPT" when authenticated.
@@ -378,6 +401,16 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
     jsonUsage: { args: ["--json"], parse: parseAgentEvent },
   },
 };
+
+/** The install command to SHOW for this platform (never executed as a string). */
+export function installCommandFor(agent: AgentCliDef): string {
+  return (process.platform === "win32" ? agent.installCmdWin : undefined) ?? agent.installCmd;
+}
+
+/** The one-line "how to get it" hint for this platform. */
+export function installHintFor(agent: AgentCliDef): string {
+  return (process.platform === "win32" ? agent.installHintWin : undefined) ?? agent.installHint;
+}
 
 /**
  * Is this agent's CLI actually on PATH?
@@ -439,16 +472,27 @@ async function executableAt(file: string): Promise<boolean> {
  * which on Windows cuts PATH apart at the drive letter — "C:\Users\…" becomes
  * ["C", "\Users\…"] — and then produced a PATH the OS cannot parse. Node exposes
  * the correct separator; use it.
+ *
+ * It then skipped Windows entirely, on the reasoning that ~/.local/bin is a
+ * POSIX convention. That is not true of the agents this tool actually drives:
+ * Claude Code's native Windows installer writes
+ * %USERPROFILE%\.local\bin\claude.exe — the same path, which its own uninstall
+ * instructions confirm. Skipping it there meant the freshly-installed case this
+ * whole function exists for (installer updated the user PATH, the already-open
+ * terminal still has the old one) was handled on macOS and Linux and nowhere
+ * else, so `connect` offered to install a CLI that was sitting right there.
  */
 export function pathWithLocalBin(): string {
   const current = process.env.PATH ?? "";
-  // ~/.local/bin is a POSIX convention. Windows installers do not use it, so
-  // there is nothing to add and no reason to touch a working PATH.
-  if (process.platform === "win32") return current;
-
   const local = nodePath.join(os.homedir(), ".local", "bin");
   const parts = current.split(nodePath.delimiter);
-  return parts.includes(local) ? current : `${local}${nodePath.delimiter}${current}`;
+  // Windows paths are case-insensitive, so a case-differing entry is already
+  // this directory and prepending would only duplicate it.
+  const has =
+    process.platform === "win32"
+      ? parts.some((p) => p.toLowerCase() === local.toLowerCase())
+      : parts.includes(local);
+  return has ? current : `${local}${nodePath.delimiter}${current}`;
 }
 
 export async function runAgent(
