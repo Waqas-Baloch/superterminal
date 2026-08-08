@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI visibility · 2026-08-04</title>
+<style>
+:root{
+  color-scheme: light dark;
+  --surface-1:#fcfcfb; --surface-2:#f4f4f2; --line:#e3e3df;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#84837d;
+  --good:#008300; --warn:#eda100; --crit:#e34948;
+  --e0: #2a78d6;
+  --e1: #eb6834;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    --surface-1:#1a1a19; --surface-2:#232322; --line:#33332f;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c84;
+    --good:#3fb950; --warn:#c98500; --crit:#e66767;
+    --e0: #3987e5;
+    --e1: #d95926;
+  }
+}
+:root[data-theme="dark"]{
+  --surface-1:#1a1a19; --surface-2:#232322; --line:#33332f;
+  --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#8d8c84;
+  --good:#3fb950; --warn:#c98500; --crit:#e66767;
+    --e0: #3987e5;
+    --e1: #d95926;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:32px 24px 64px;background:var(--surface-1);color:var(--text-primary);
+  font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:15px;margin:40px 0 14px;color:var(--text-secondary);font-weight:600;
+  text-transform:uppercase;letter-spacing:.06em}
+.sub{color:var(--text-secondary);margin:0 0 28px;font-size:14px}
+.alert{border:1px solid var(--crit);border-left-width:3px;border-radius:8px;padding:14px 16px;
+  margin:0 0 28px;background:var(--surface-2)}
+.alert b{color:var(--crit)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.tile{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.tile .k{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-size:34px;font-weight:650;letter-spacing:-.02em;margin:6px 0 2px;
+  font-variant-numeric:tabular-nums}
+.tile .d{font-size:13px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.tile .d.up{color:var(--good)} .tile .d.down{color:var(--crit)}
+.card{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:18px}
+figure{margin:0}
+figcaption{font-size:13px;color:var(--text-secondary);margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--text-secondary);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px;vertical-align:baseline}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--text-secondary);margin-bottom:14px}
+.cell{width:24px;height:24px;border-radius:5px;display:inline-block;text-align:center;
+  line-height:24px;font-size:13px;font-weight:700}
+.q{max-width:430px}
+footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);
+  color:var(--text-muted);font-size:13px;max-width:640px}
+.toggle{position:fixed;top:16px;right:16px;background:var(--surface-2);color:var(--text-secondary);
+  border:1px solid var(--line);border-radius:7px;padding:6px 11px;font-size:13px;cursor:pointer}
+svg text{font:11px ui-sans-serif,-apple-system,sans-serif;fill:var(--text-muted)}
+svg .lbl{fill:var(--text-secondary);font-weight:600}
+svg .grid{stroke:var(--line);stroke-width:1}
+[data-tip]{cursor:default}
+
+.ctl{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;margin:0 0 28px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.ctl button{background:var(--e0);color:#fff;border:0;border-radius:7px;padding:8px 15px;
+  font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.ctl button.ghost{background:transparent;color:var(--text-secondary);border:1px solid var(--line)}
+.ctl button:hover{filter:brightness(1.08)}
+.ctl input{background:var(--surface-1);color:var(--text-primary);border:1px solid var(--line);
+  border-radius:7px;padding:8px 10px;font-size:13.5px;width:96px;font-family:inherit}
+.ctl label{font-size:12px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em}
+.ctl-status{flex-basis:100%;font-size:13px;color:var(--text-secondary);
+  font-variant-numeric:tabular-nums;min-height:18px}
+.ctl-status.ok{color:var(--good)} .ctl-status.bad{color:var(--crit)}
+.rec{border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:14px 16px;margin-bottom:12px}
+.rec.critical{border-left-color:var(--crit)} .rec.high{border-left-color:var(--warn)}
+.rec.medium{border-left-color:var(--text-muted)}
+.rec h3{margin:0 0 6px;font-size:15px}
+.rec .why{font-size:13px;color:var(--text-secondary);margin:0 0 8px;font-variant-numeric:tabular-nums}
+.rec .do{font-size:13.5px;margin:0 0 8px}
+.rec .met{font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+.sev{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;padding:2px 7px;border-radius:4px;margin-right:8px;vertical-align:2px}
+.sev.critical{background:var(--crit);color:#fff}
+.sev.high{background:var(--warn);color:#1a1a19}
+.sev.medium{background:var(--line);color:var(--text-secondary)}
+
+#tip{position:fixed;pointer-events:none;background:var(--text-primary);color:var(--surface-1);
+  padding:6px 9px;border-radius:6px;font-size:12px;opacity:0;transition:opacity .1s;z-index:9;
+  white-space:pre;font-variant-numeric:tabular-nums}
+</style></head><body data-run-date="2026-08-04">
+<button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='dark'?'light':'dark'">theme</button>
+<div class="wrap">
+<h1>AI visibility</h1>
+<p class="sub">2026-08-04 · Claude, ChatGPT · 34 answers scored · run 2</p>
+
+
+
+<div class="ctl">
+  <button id="ctl-run">Run measurement now</button>
+  <label for="ctl-tiers">Tiers</label>
+  <input id="ctl-tiers" value="1,2,3,4" title="Which tiers to measure">
+  <button id="ctl-refresh" class="ghost">Refresh</button>
+  <button id="ctl-forget" class="ghost">Forget token</button>
+  <div id="ctl-status" class="ctl-status">Click Run and paste a GitHub token once — it stays in this browser.</div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="k">Mention rate</div><div class="v">9%</div><div class="d down">-2 pts</div></div>
+  <div class="tile"><div class="k">Citation rate</div><div class="v">0%</div><div class="d down">-3 pts</div></div>
+  <div class="tile"><div class="k">Share of voice</div><div class="v">4%</div><div class="d">of 11 tools named</div></div>
+  <div class="tile"><div class="k">Questions asked</div><div class="v">34</div><div class="d">6 error(s)</div></div>
+</div>
+
+<h2>Do this next</h2>
+<div><div class="rec high">
+  <h3><span class="sev high">high</span>Competitors own 6 pain-shaped questions</h3>
+  <p class="why">e.g. &quot;Why does Claude Code change files I didn't ask it to?&quot; — every engine named Claude Code and none named us.</p>
+  <p class="do">These are the highest-intent, lowest-competition queries available, and they lose to nobody in particular — they lose to whoever wrote about the problem. Answer them verbatim as headings somewhere crawlable, with an answer that stands alone when quoted.</p>
+  <p class="met">Should move: Tier 1 mention rate</p>
+</div>
+<div class="rec high">
+  <h3><span class="sev high">high</span>The engines are reading communities, not vendor sites</h3>
+  <p class="why">Top sources this cycle: code.claude.com (10), dev.to (8), github.com (7), morphllm.com (6), arxiv.org (5).</p>
+  <p class="do">Presence on dev.to and github.com is worth more than another page on our own site. A well-written answer in a thread the engines already cite is the highest-leverage single action on this list.</p>
+  <p class="met">Should move: Citation rate, and our own domain appearing in this list</p>
+</div></div>
+<p style="font-size:13px;color:var(--text-muted);margin:-4px 0 0">Ranked by the protocol's priority ladder, not by how easy they are. Do the top one, then re-measure — two changes at once and neither can be attributed.</p>
+
+<h2>Mention rate over time</h2><div class="card"><figure><svg viewBox="0 0 1000 300" width="100%" role="img" aria-label="Mention rate by engine over time"><line class="grid" x1="40" x2="884" y1="266" y2="266"/><text x="32" y="270" text-anchor="end">0%</text><line class="grid" x1="40" x2="884" y1="203.5" y2="203.5"/><text x="32" y="207.5" text-anchor="end">25%</text><line class="grid" x1="40" x2="884" y1="141" y2="141"/><text x="32" y="145" text-anchor="end">50%</text><line class="grid" x1="40" x2="884" y1="78.5" y2="78.5"/><text x="32" y="82.5" text-anchor="end">75%</text><line class="grid" x1="40" x2="884" y1="16" y2="16"/><text x="32" y="20" text-anchor="end">100%</text><text x="40" y="288" text-anchor="middle">08-03</text><text x="884" y="288" text-anchor="middle">08-04</text><path d="M40,252.11111111111111 L884,266" fill="none" stroke="var(--e0)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="40" cy="252.11111111111111" r="4.5" fill="var(--e0)" stroke="var(--surface-2)" stroke-width="2" data-tip="Claude · 2026-08-03
+6% mentioned"/><circle cx="884" cy="266" r="4.5" fill="var(--e0)" stroke="var(--surface-2)" stroke-width="2" data-tip="Claude · 2026-08-04
+0% mentioned"/><text class="lbl" x="896" y="270" fill="var(--e0)">Claude 0%</text><path d="M40,226.5263157894737 L884,226.5263157894737" fill="none" stroke="var(--e1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="40" cy="226.5263157894737" r="4.5" fill="var(--e1)" stroke="var(--surface-2)" stroke-width="2" data-tip="ChatGPT · 2026-08-03
+16% mentioned"/><circle cx="884" cy="226.5263157894737" r="4.5" fill="var(--e1)" stroke="var(--surface-2)" stroke-width="2" data-tip="ChatGPT · 2026-08-04
+16% mentioned"/><text class="lbl" x="896" y="230.5263157894737" fill="var(--e1)">ChatGPT 16%</text></svg><figcaption>Share of questions where the engine named Super Terminal at all. Each engine is labelled at its latest point.</figcaption></figure></div>
+
+<h2>By engine</h2>
+<div class="card"><div class="legend"><span><span class="dot" style="background:var(--text-secondary)"></span>Upper bar — mentioned</span><span><span class="dot" style="background:var(--text-secondary);opacity:.45"></span>Lower bar — actually cited</span></div><figure><svg viewBox="0 0 1000 124" width="100%" role="img" aria-label="Mention and citation rate by engine"><text class="lbl" x="0" y="28">Claude</text><rect x="116" y="14" width="2" height="16" rx="4" fill="var(--e0)" data-tip="Claude named us in 0 of 15"/><rect x="116" y="34" width="2" height="10" rx="4" fill="var(--e0)" opacity=".45" data-tip="Claude linked us in 0 of 15"/><text class="lbl" x="920" y="27">0%</text><text x="920" y="43">0%</text><text class="lbl" x="0" y="82">ChatGPT</text><rect x="116" y="68" width="125.36842105263158" height="16" rx="4" fill="var(--e1)" data-tip="ChatGPT named us in 3 of 19"/><rect x="116" y="88" width="2" height="10" rx="4" fill="var(--e1)" opacity=".45" data-tip="ChatGPT linked us in 0 of 19"/><text class="lbl" x="920" y="81">16%</text><text x="920" y="97">0%</text></svg><figcaption>Citation is always a subset of mention. A wide upper bar with a thin lower one means the engines know us but do not link us.</figcaption></figure></div>
+
+<h2>Every question</h2>
+<div class="card"><div class="legend"><span><span class="dot" style="background:var(--good)"></span>◆ cited</span><span><span class="dot" style="background:var(--e0)"></span>● mentioned</span><span><span class="dot" style="background:var(--crit)"></span>✕ disavowed</span><span><span class="dot" style="background:var(--line)"></span>– absent</span><span><span class="dot" style="background:var(--warn)"></span>! error</span></div><table><thead><tr><th class="q">Question</th><th>Tier</th><th>Claude</th><th>ChatGPT</th></tr></thead><tbody><tr><td class="q">Why does Claude Code change files I didn't ask it to?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I stop an AI coding agent from editing unrelated files?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I make Cursor follow the rules in my CLAUDE.md?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">Can I use the same coding rules for Claude Code, Cursor and Codex?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">My AI assistant deleted the wrong element — how do I prevent that?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I undo everything an AI coding agent just did?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I stop an AI agent from doing more than I asked?</td><td class="n">1</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How can I have one AI review another AI's code?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">Is there a tool that checks AI-generated code against my project's rules?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I verify an AI coding agent met the ticket's requirements?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">Can I run the same task through Claude Code and Cursor and compare?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I share coding standards across a team that uses AI agents?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I chain multiple AI coding agents into one workflow?</td><td class="n">2</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">What are the best tools for managing multiple AI coding agents?</td><td class="n">3</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">Best CLI tools for AI-assisted development</td><td class="n">3</td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="Claude · absent">–</span></td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="ChatGPT · error: The operation was aborted due to timeout">!</span></td></tr><tr><td class="q">Alternatives to using Claude Code on its own</td><td class="n">3</td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="Claude · error: 400 {&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;type&quot;:&quot;invalid_request_error&quot;,&quot;message&quot;:&quot;Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits.&quot;},&quot;reque">!</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">How do I make AI coding assistants safer to use on a real codebase?</td><td class="n">3</td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="Claude · error: 400 {&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;type&quot;:&quot;invalid_request_error&quot;,&quot;message&quot;:&quot;Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits.&quot;},&quot;reque">!</span></td><td><span class="cell" style="background:transparent;border:1px solid var(--line);color:var(--text-muted)" data-tip="ChatGPT · absent">–</span></td></tr><tr><td class="q">What is Super Terminal, the CLI for AI coding agents?</td><td class="n">4</td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="Claude · error: 400 {&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;type&quot;:&quot;invalid_request_error&quot;,&quot;message&quot;:&quot;Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits.&quot;},&quot;reque">!</span></td><td><span class="cell" style="background:var(--e0);color:#fff" data-tip="ChatGPT · mentioned, not linked">●</span></td></tr><tr><td class="q">Is Super Terminal (the AI coding agent CLI) open source?</td><td class="n">4</td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="Claude · error: 400 {&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;type&quot;:&quot;invalid_request_error&quot;,&quot;message&quot;:&quot;Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits.&quot;},&quot;reque">!</span></td><td><span class="cell" style="background:var(--e0);color:#fff" data-tip="ChatGPT · mentioned, not linked">●</span></td></tr><tr><td class="q">Does Super Terminal need its own API key?</td><td class="n">4</td><td><span class="cell" style="background:var(--warn);color:#fff" data-tip="Claude · error: 400 {&quot;type&quot;:&quot;error&quot;,&quot;error&quot;:{&quot;type&quot;:&quot;invalid_request_error&quot;,&quot;message&quot;:&quot;Your credit balance is too low to access the Anthropic API. Please go to Plans &amp; Billing to upgrade or purchase credits.&quot;},&quot;reque">!</span></td><td><span class="cell" style="background:var(--e0);color:#fff" data-tip="ChatGPT · mentioned, not linked">●</span></td></tr></tbody></table><figcaption style="font-size:13px;color:var(--text-secondary);margin-top:10px">Tier 4 is the brand questions. A miss there outranks everything else on this page.</figcaption></div>
+
+<h2>Competitors</h2>
+<div class="card"><table><thead><tr>
+<th>Tool</th><th class="n">Named</th><th class="n">Share</th>
+<th class="n">Beats us</th><th class="n">Alongside</th><th class="n">vs last</th>
+</tr></thead><tbody><tr><td>Claude Code</td><td class="n">17</td><td class="n">50%</td><td class="n"><b>15</b></td><td class="n">2</td><td class="n">-2</td></tr><tr><td>Cursor</td><td class="n">15</td><td class="n">44%</td><td class="n"><b>14</b></td><td class="n">1</td><td class="n">-2</td></tr><tr><td>Codex</td><td class="n">12</td><td class="n">35%</td><td class="n"><b>10</b></td><td class="n">2</td><td class="n" style="color:var(--crit)">+6</td></tr><tr><td>GitHub Copilot</td><td class="n">10</td><td class="n">29%</td><td class="n"><b>10</b></td><td class="n">0</td><td class="n" style="color:var(--crit)">+2</td></tr><tr><td>Windsurf</td><td class="n">5</td><td class="n">15%</td><td class="n"><b>5</b></td><td class="n">0</td><td class="n" style="color:var(--crit)">+4</td></tr><tr><td>Aider</td><td class="n">5</td><td class="n">15%</td><td class="n"><b>4</b></td><td class="n">1</td><td class="n">0</td></tr><tr><td>Cline</td><td class="n">3</td><td class="n">9%</td><td class="n"><b>3</b></td><td class="n">0</td><td class="n" style="color:var(--crit)">+1</td></tr><tr><td>CodeRabbit</td><td class="n">2</td><td class="n">6%</td><td class="n"><b>2</b></td><td class="n">0</td><td class="n">0</td></tr><tr><td>Greptile</td><td class="n">2</td><td class="n">6%</td><td class="n"><b>2</b></td><td class="n">0</td><td class="n" style="color:var(--crit)">+1</td></tr><tr><td>Continue</td><td class="n">1</td><td class="n">3%</td><td class="n"><b>1</b></td><td class="n">0</td><td class="n">0</td></tr></tbody></table>
+<figcaption style="font-size:13px;color:var(--text-secondary);margin-top:12px"><b>Beats us</b> is the column that matters: answers where they were named and we were not. <b>Alongside</b> means we both appeared, which is a win at this stage. A rising "vs last" is a rival gaining ground.</figcaption></div>
+
+<h2>Who else gets named</h2>
+<div class="card"><figure><svg viewBox="0 0 1000 308" width="100%" role="img" aria-label="How often each tool is named"><text class="lbl" x="0" y="19">Claude Code</text><rect x="150" y="6" width="790" height="16" rx="4" fill="var(--line)" data-tip="Claude Code named in 17 answers (23%)"/><text class="lbl" x="950" y="19">17</text><text class="lbl" x="0" y="49">Cursor</text><rect x="150" y="36" width="697.0588235294117" height="16" rx="4" fill="var(--line)" data-tip="Cursor named in 15 answers (20%)"/><text class="lbl" x="950" y="49">15</text><text class="lbl" x="0" y="79">Codex</text><rect x="150" y="66" width="557.6470588235294" height="16" rx="4" fill="var(--line)" data-tip="Codex named in 12 answers (16%)"/><text class="lbl" x="950" y="79">12</text><text class="lbl" x="0" y="109">GitHub Copilot</text><rect x="150" y="96" width="464.7058823529412" height="16" rx="4" fill="var(--line)" data-tip="GitHub Copilot named in 10 answers (13%)"/><text class="lbl" x="950" y="109">10</text><text class="lbl" x="0" y="139">Aider</text><rect x="150" y="126" width="232.3529411764706" height="16" rx="4" fill="var(--line)" data-tip="Aider named in 5 answers (7%)"/><text class="lbl" x="950" y="139">5</text><text class="lbl" x="0" y="169">Windsurf</text><rect x="150" y="156" width="232.3529411764706" height="16" rx="4" fill="var(--line)" data-tip="Windsurf named in 5 answers (7%)"/><text class="lbl" x="950" y="169">5</text><text class="lbl" x="0" y="199" font-weight="700">Super Terminal</text><rect x="150" y="186" width="139.41176470588235" height="16" rx="4" fill="var(--e0)" data-tip="Super Terminal named in 3 answers (4%)"/><text class="lbl" x="950" y="199">3</text><text class="lbl" x="0" y="229">Cline</text><rect x="150" y="216" width="139.41176470588235" height="16" rx="4" fill="var(--line)" data-tip="Cline named in 3 answers (4%)"/><text class="lbl" x="950" y="229">3</text><text class="lbl" x="0" y="259">CodeRabbit</text><rect x="150" y="246" width="92.94117647058823" height="16" rx="4" fill="var(--line)" data-tip="CodeRabbit named in 2 answers (3%)"/><text class="lbl" x="950" y="259">2</text><text class="lbl" x="0" y="289">Greptile</text><rect x="150" y="276" width="92.94117647058823" height="16" rx="4" fill="var(--line)" data-tip="Greptile named in 2 answers (3%)"/><text class="lbl" x="950" y="289">2</text></svg><figcaption>Every tool named across all answers this cycle. Not all are competitors — Claude Code is also what we sit on top of — but the question here is simply what else got named.</figcaption></figure></div>
+
+<h2>Where the answers come from</h2><div class="card">
+<table><thead><tr><th>Domain</th><th class="n">Times cited</th></tr></thead><tbody><tr><td>code.claude.com</td><td class="n">10</td></tr><tr><td>dev.to</td><td class="n">8</td></tr><tr><td>github.com</td><td class="n">7</td></tr><tr><td>morphllm.com</td><td class="n">6</td></tr><tr><td>arxiv.org</td><td class="n">5</td></tr><tr><td>claudefa.st</td><td class="n">4</td></tr><tr><td>stevekinney.com</td><td class="n">4</td></tr><tr><td>techsy.io</td><td class="n">4</td></tr><tr><td>medium.com</td><td class="n">4</td></tr><tr><td>augmentcode.com</td><td class="n">4</td></tr><tr><td>ai.plainenglish.io</td><td class="n">3</td></tr><tr><td>systemprompt.io</td><td class="n">3</td></tr></tbody></table>
+<figcaption style="font-size:13px;color:var(--text-secondary);margin-top:12px">Community platforms take over half of all AI citations industry-wide. Reddit and GitHub sitting high here is the expected shape — and it is where the highest-leverage work is, not on our own pages.</figcaption></div>
+
+<footer>
+<p><b>How to read this.</b> These figures come from each vendor's API with its web-search
+tool, which is not the same system as the consumer chat product — different index,
+different ranking, no personalisation. Measured identically every cycle, so the
+<i>movement</i> is real even though the absolute numbers are a proxy.</p>
+<p><b>A mention is not a citation.</b> Being named without being linked sends no traffic,
+which is why the two are counted separately throughout.</p>
+<p><b>One change per cycle.</b> Two at once and you cannot attribute the result.</p>
+</footer>
+</div>
+<div id="tip"></div>
+<script>
+
+(function () {
+  var REPO = "Waqas-Baloch/superterminal-radar", WF = "measure.yml", KEY = "st_radar_token";
+  var $ = function (id) { return document.getElementById(id); };
+  var tok = function () { return localStorage.getItem(KEY) || ""; };
+
+  function setStatus(msg, kind) {
+    var el = $("ctl-status");
+    el.textContent = msg;
+    el.className = "ctl-status" + (kind ? " " + kind : "");
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({
+      accept: "application/vnd.github+json",
+      authorization: "Bearer " + tok(),
+      "x-github-api-version": "2022-11-28"
+    }, opts.headers || {});
+    return fetch("https://api.github.com" + path, opts);
+  }
+
+  function needToken() {
+    var t = prompt(
+      "GitHub fine-grained token for " + REPO + "\n\n" +
+      "Needs: Actions read+write, Contents read — on this repository only.\n" +
+      "Stored in this browser only. Never sent anywhere except api.github.com."
+    );
+    if (t) { localStorage.setItem(KEY, t.trim()); return true; }
+    return false;
+  }
+
+  function run() {
+    if (!tok() && !needToken()) return;
+    setStatus("Starting…");
+    api("/repos/" + REPO + "/actions/workflows/" + WF + "/dispatches", {
+      method: "POST",
+      body: JSON.stringify({ ref: "main", inputs: { tiers: $("ctl-tiers").value || "1,2,3,4" } })
+    }).then(function (r) {
+      if (r.status === 204) { setStatus("Running — this takes ~30 min. Poll below.", "ok"); poll(); }
+      else if (r.status === 401 || r.status === 403) {
+        localStorage.removeItem(KEY);
+        setStatus("Token rejected (" + r.status + "). Click again to re-enter it.", "bad");
+      } else { r.text().then(function (t) { setStatus("Failed " + r.status + ": " + t.slice(0, 140), "bad"); }); }
+    }).catch(function (e) { setStatus("Network error: " + e.message, "bad"); });
+  }
+
+  function poll() {
+    api("/repos/" + REPO + "/actions/runs?per_page=1").then(function (r) { return r.json(); })
+      .then(function (j) {
+        var run = j.workflow_runs && j.workflow_runs[0];
+        if (!run) return;
+        if (run.status !== "completed") {
+          setStatus("Running… (" + run.status + ", started " + new Date(run.run_started_at).toLocaleTimeString() + ")");
+          setTimeout(poll, 30000);
+        } else if (run.conclusion === "success") {
+          setStatus("Done. Click Refresh to load the new numbers.", "ok");
+        } else {
+          setStatus("Run finished: " + run.conclusion + ". Check the Actions tab.", "bad");
+        }
+      }).catch(function () { /* transient — the next poll retries */ });
+  }
+
+  // Pull the committed run files straight from the API, so the numbers on screen
+  // can be current without a git pull and without regenerating this file.
+  function refresh() {
+    if (!tok() && !needToken()) return;
+    setStatus("Fetching latest results…");
+    api("/repos/" + REPO + "/contents/data/runs").then(function (r) { return r.json(); })
+      .then(function (files) {
+        if (!Array.isArray(files)) throw new Error("could not list data/runs");
+        var latest = files.filter(function (f) { return /\.json$/.test(f.name); })
+                          .sort(function (a, b) { return a.name < b.name ? 1 : -1; })[0];
+        if (!latest) throw new Error("no runs committed yet");
+        return fetch(latest.download_url).then(function (r) { return r.json(); }).then(function (data) {
+          var ok = data.scores.filter(function (s) { return !s.error; });
+          var m = ok.filter(function (s) { return s.mentioned; }).length;
+          var c = ok.filter(function (s) { return s.cited; }).length;
+          setStatus(
+            latest.name.replace(".json", "") + ": " + ok.length + " answers · " +
+            Math.round(m / (ok.length || 1) * 100) + "% mentioned · " +
+            Math.round(c / (ok.length || 1) * 100) + "% cited" +
+            (data.date === document.body.dataset.runDate ? " (already shown)" : " — reload the file to redraw the charts"),
+            "ok"
+          );
+        });
+      }).catch(function (e) { setStatus("Refresh failed: " + e.message, "bad"); });
+  }
+
+  $("ctl-run").addEventListener("click", run);
+  $("ctl-refresh").addEventListener("click", refresh);
+  $("ctl-forget").addEventListener("click", function () {
+    localStorage.removeItem(KEY);
+    setStatus("Token removed from this browser.", "ok");
+  });
+  if (tok()) setStatus("Token saved in this browser. Ready.");
+})();
+
+var tip=document.getElementById('tip');
+document.addEventListener('mouseover',function(e){
+  var t=e.target.closest('[data-tip]'); if(!t)return;
+  tip.textContent=t.getAttribute('data-tip'); tip.style.opacity='1';
+});
+document.addEventListener('mousemove',function(e){
+  if(tip.style.opacity==='1'){tip.style.left=(e.clientX+14)+'px';tip.style.top=(e.clientY+14)+'px';}
+});
+document.addEventListener('mouseout',function(e){
+  if(e.target.closest('[data-tip]'))tip.style.opacity='0';
+});
+</script>
+</body></html>
