@@ -1,3 +1,4 @@
+import { promises as fsp, constants as fsConstants } from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { execa } from "execa";
@@ -381,21 +382,53 @@ export const AGENT_CLIS: Record<AgentCliId, AgentCliDef> = {
 /**
  * Is this agent's CLI actually on PATH?
  *
- * Asks the binary itself rather than asking the OS where it lives. `which` does
- * not exist on Windows — it is `where` — so every agent looked uninstalled
- * there, and `connect` had nothing to offer. Running `<bin> --version` works
- * identically on all three platforms and answers a better question anyway: not
- * "is there a file somewhere" but "does this actually run".
+ * Resolved in Node rather than by spawning anything. Two earlier attempts both
+ * broke on Windows:
+ *
+ *   `which` does not exist there (it is `where`), so every agent looked
+ *   uninstalled and `connect` had nothing to offer.
+ *
+ *   Spawning `<bin> --version` and treating a defined exit code as proof looked
+ *   cross-platform and is not. On POSIX a missing binary yields ENOENT with no
+ *   exit code, but Windows routes through a shim and reports an exit code
+ *   anyway, so every missing agent read as installed — worse than the bug it
+ *   replaced.
+ *
+ * Walking PATH is deterministic on all three platforms, spawns nothing, and
+ * handles the case both previous versions missed: npm-installed CLIs on Windows
+ * are `.cmd` shims, so `cursor-agent` on disk is `cursor-agent.cmd`. PATHEXT is
+ * what tells us which suffixes count.
  */
 export async function isAgentInstalled(bin: string): Promise<boolean> {
-  const r = await execa(bin, ["--version"], {
-    reject: false,
-    timeout: 10_000,
-    env: { ...process.env, PATH: pathWithLocalBin() },
-  }).catch(() => null);
-  // A non-zero exit still proves the binary exists and ran; only a spawn failure
-  // (ENOENT) means it is genuinely absent, and that is what the catch above sees.
-  return r !== null && r.exitCode !== undefined;
+  // An explicit path is checked directly rather than searched for.
+  if (bin.includes("/") || bin.includes("\\")) return executableAt(bin);
+
+  const exts =
+    process.platform === "win32"
+      ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+      : [""];
+
+  for (const dir of pathWithLocalBin().split(nodePath.delimiter).filter(Boolean)) {
+    for (const ext of exts) {
+      if (await executableAt(nodePath.join(dir, bin + ext))) return true;
+    }
+  }
+  return false;
+}
+
+/** Does a file exist here that we could actually run? */
+async function executableAt(file: string): Promise<boolean> {
+  try {
+    const st = await fsp.stat(file);
+    if (!st.isFile()) return false;
+    // Windows decides by extension, which the caller has already applied; the
+    // execute bit is a POSIX concept and checking it there would reject nothing.
+    if (process.platform === "win32") return true;
+    await fsp.access(file, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

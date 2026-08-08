@@ -41,12 +41,29 @@ describe("pathWithLocalBin", () => {
 
 describe("isAgentInstalled", () => {
   it("finds a binary that exists on every platform", async () => {
-    // `node` is guaranteed present wherever this suite runs, and unlike `which`
-    // the check itself is cross-platform.
+    // `node` is guaranteed present wherever this suite runs. On Windows it is
+    // node.exe, which is the case PATHEXT handling exists for.
     expect(await isAgentInstalled("node")).toBe(true);
+    expect(await isAgentInstalled("npm")).toBe(true); // npm.cmd on Windows
   });
 
   it("reports a missing binary as missing", async () => {
+    // This is the assertion that caught the second bad implementation. Spawning
+    // `<bin> --version` and treating a defined exit code as proof passed on
+    // POSIX (ENOENT, no exit code) and failed on Windows, where a shim reports
+    // an exit code anyway — so every missing agent read as installed.
     expect(await isAgentInstalled("definitely-not-a-real-binary-xyz")).toBe(false);
+    expect(await isAgentInstalled("zzz-no-such-agent")).toBe(false);
+  });
+
+  it("handles an explicit path without searching PATH", async () => {
+    expect(await isAgentInstalled(process.execPath)).toBe(true);
+    expect(await isAgentInstalled(nodePath.join(os.tmpdir(), "no-such-binary-here"))).toBe(false);
+  });
+
+  it("does not treat a directory as a binary", async () => {
+    // stat().isFile() matters: os.tmpdir() exists and is executable-ish, but
+    // running it would fail.
+    expect(await isAgentInstalled(os.tmpdir())).toBe(false);
   });
 });
