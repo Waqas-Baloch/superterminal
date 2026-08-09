@@ -41,6 +41,7 @@ import {
   AGENT_CLIS,
   runAgent,
   continueAgent,
+  gitDirtyFiles,
   isAgentInstalled,
   AgentLimitError,
   type AgentCliDef,
@@ -61,6 +62,10 @@ import { printSelection, printSemanticSummary } from "./shared";
 import { STATE_DIR, stateDir, ensureStateDir } from "../util/paths";
 
 const MAX_REPAIRS = 2;
+// Retries after a failed REVIEW, separate from validator repairs above. Two is
+// deliberate: it covers the common "missed one criterion" case without letting
+// one command quietly consume a subscription's daily allowance.
+const MAX_REVIEW_REPAIRS = Number(process.env.SUPER_T_MAX_REVIEW_REPAIRS ?? 2);
 
 interface RunOptions {
   budget?: string;
@@ -535,7 +540,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     }
   }
 
-  const outcome =
+  let outcome =
     auth.mode === "agent-cli"
       ? await runViaAgentCli(root, manifest, opts, AGENT_CLIS[auth.agent], index, config)
       : await runViaApi(root, manifest, model, auth, index, opts);
@@ -574,7 +579,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
     const criteria =
       ticketAc.length > 0 ? ticketAc : parseCriteria([finalTask, (await loadContext(root)).text, rulesText].join("\n"));
     const authorTitle = auth.mode === "agent-cli" ? AGENT_CLIS[auth.agent].title : "API";
-    const verdict = await secondOpinion({
+    const firstVerdict = await secondOpinion({
       root,
       task: finalTask,
       changedFiles: outcome.touched,
@@ -583,6 +588,51 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
       config,
       criteria,
     });
+    // The loop. A verdict that finds unmet criteria is a finding, not an ending:
+    // feed the specific failures back and let the agent close them. Bounded
+    // hard, because every attempt spends the user's own subscription quota and
+    // a loop that cannot stop is a loop that empties a weekly limit.
+    let verdict = firstVerdict;
+    if (auth.mode === "agent-cli") {
+      for (let attempt = 1; attempt <= MAX_REVIEW_REPAIRS; attempt++) {
+        const gaps = reviewGaps(verdict);
+        if (!gaps) break;
+
+        log.info("");
+        log.warn(`Not done yet — retrying (${attempt}/${MAX_REVIEW_REPAIRS}).`);
+        for (const g of gaps.lines) log.dim(`    ${g}`);
+
+        const wave = pixelWave(`${AGENT_CLIS[auth.agent].title} is fixing what the review found…`);
+        try {
+          await continueAgent(AGENT_CLIS[auth.agent], root, gaps.prompt, () => wave.stop(), false, config.mode);
+        } catch (err) {
+          wave.stop();
+          log.dim(`  Retry could not run: ${err instanceof Error ? err.message : String(err)}`);
+          break;
+        }
+        wave.stop();
+
+        // The retry edits on top of the first run, so the file set can only
+        // grow. Union what the reviewer already saw with whatever git now
+        // reports dirty — re-checking the original list would judge a diff that
+        // no longer exists.
+        const nowDirty = await gitDirtyFiles(root).catch(() => new Set<string>());
+        const touched: string[] = [...new Set<string>([...outcome.touched, ...nowDirty])];
+        outcome = { ...outcome, touched };
+        if (touched.length === 0) break;
+
+        verdict = await secondOpinion({
+          root,
+          task: finalTask,
+          changedFiles: outcome.touched,
+          rulesText,
+          authorId: auth.agent,
+          config,
+          criteria,
+        });
+      }
+    }
+
     const reportPath = await writeRunReport(root, {
       task: finalTask,
       agent: authorTitle,
@@ -1408,4 +1458,42 @@ function printCompletion(verdict: ReviewVerdict | null, criteriaCount: number): 
   if (verdict.independent === false) {
     log.dim("  Same vendor checked its own work. Install a second agent for an independent check.");
   }
+}
+
+
+/**
+ * What the review says is still missing, as something an agent can act on.
+ *
+ * Returns null when there is nothing left to fix, which is what ends the loop.
+ * Unmet criteria come first and carry the reviewer's reason, because "criterion
+ * 2 is not met because there is no error branch" is a repair instruction while
+ * "the review raised issues" is not.
+ */
+export function reviewGaps(verdict: ReviewVerdict | null): { prompt: string; lines: string[] } | null {
+  if (!verdict) return null; // nothing checked it, so there is nothing to act on
+
+  const unmet = verdict.criteria.filter((c) => c.status === "not_met");
+  const notes = verdict.notes;
+  if (unmet.length === 0 && verdict.approved) return null;
+  // Issues with no specifics give the agent nothing to work with, and retrying
+  // on "something was wrong" burns a turn to produce another vague answer.
+  if (unmet.length === 0 && notes.length === 0) return null;
+
+  const lines = [
+    ...unmet.map((c) => `${c.index}. ${c.note ?? "not met"}`),
+    ...notes.slice(0, 5).map((n) => `· ${n}`),
+  ];
+
+  const prompt = [
+    "A reviewer checked your changes against the task's acceptance criteria and found gaps.",
+    unmet.length > 0
+      ? `## Criteria not met\n${unmet.map((c) => `${c.index}. ${c.note ?? "not met"}`).join("\n")}`
+      : "",
+    notes.length > 0 ? `## Issues raised\n${notes.slice(0, 5).map((n) => `- ${n}`).join("\n")}` : "",
+    "Fix exactly these. Change nothing else, and do not revisit work that was already accepted.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return { prompt, lines };
 }
