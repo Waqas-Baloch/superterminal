@@ -16,7 +16,7 @@ const v = (over: Partial<ReviewVerdict>): ReviewVerdict => ({
 
 describe("reviewGaps — when the loop keeps going", () => {
   it("stops when everything passed", () => {
-    expect(reviewGaps(v({ approved: true, criteria: [{ index: 1, status: "met" }] }))).toBeNull();
+    expect(reviewGaps(v({ approved: true, criteria: [{ index: 1, status: "met", note: "" }] }))).toBeNull();
   });
 
   it("stops when nothing reviewed it — there is nothing to act on", () => {
@@ -37,7 +37,7 @@ describe("reviewGaps — when the loop keeps going", () => {
   });
 
   it("continues on concrete issues even when criteria all passed", () => {
-    const g = reviewGaps(v({ approved: false, criteria: [{ index: 1, status: "met" }], notes: ["auth.ts: token logged in plaintext"] }));
+    const g = reviewGaps(v({ approved: false, criteria: [{ index: 1, status: "met", note: "" }], notes: ["auth.ts: token logged in plaintext"] }));
     expect(g!.prompt).toContain("token logged in plaintext");
   });
 
