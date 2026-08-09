@@ -18,7 +18,7 @@ import { repoFileNames, forgetFileNames } from "../core/mentions";
 import { surgicalRevert } from "../core/surgicalRevert";
 import { loadRules, extractProtectedPaths, protectedMatch } from "../core/rules";
 import { loadSkills } from "../core/skills";
-import { secondOpinion, resolveReviewer } from "../core/review";
+import { secondOpinion, resolveReviewer, type ReviewVerdict } from "../core/review";
 import { parseCriteria } from "../core/criteria";
 import { buildTicketTask, ticketCriteria } from "../trackers/ticketText";
 import type { TrackerTicket } from "../trackers/types";
@@ -599,6 +599,7 @@ async function executeTask(task: string, ctx: ExecContext): Promise<void> {
           : "no reviewer configured",
     });
     if (reportPath) log.dim(`Report: ${reportPath} — readable without opening a single diff.`);
+    printCompletion(verdict, criteria.length);
   }
 
   if (outcome) {
@@ -1347,4 +1348,64 @@ You are ${name}. Describe the role, what it should do, and what it must not do.
     log.dim("  so it will not affect a Super Terminal run — Claude Code picks it up directly.");
   }
   log.dim(`  Edit it: ${rel}`);
+}
+
+
+/**
+ * State the outcome plainly: done, or not done and why.
+ *
+ * "The agent stopped" and "the work is finished" are different claims, and until
+ * now the run ended on the first while looking like the second. Validators
+ * passing means the code compiles — it says nothing about whether the thing
+ * asked for actually happened. So the closing line reports what was verified,
+ * and by whom.
+ *
+ * Deliberately does NOT loop back to the agent on a failed check. Each extra
+ * attempt spends the user's own subscription quota, and a loop that decides for
+ * itself to keep going is how someone burns a weekly limit on one command. The
+ * decision to retry stays theirs.
+ */
+function printCompletion(verdict: ReviewVerdict | null, criteriaCount: number): void {
+  log.info("");
+
+  if (!verdict) {
+    log.warn("Finished, but nothing verified it.");
+    log.dim("  The agent stopped; no reviewer ran. That is not the same as done.");
+    return;
+  }
+
+  const unmet = verdict.criteria.filter((c) => c.status === "not_met");
+  const unknown = verdict.criteria.filter((c) => c.status === "unknown");
+  const met = verdict.criteria.filter((c) => c.status === "met").length;
+  // Whoever checked it matters as much as the result. A same-vendor pass is a
+  // weaker claim and must never be printed as though it were independent.
+  const by = verdict.independent === false ? `${verdict.reviewer} (its own work)` : verdict.reviewer;
+
+  if (unmet.length > 0) {
+    log.warn(`Not done — ${unmet.length} of ${criteriaCount} acceptance criteria not met.`);
+    for (const c of unmet) log.dim(`    ${c.index}. ${c.note ?? "not met"}`);
+    log.dim("  The edits are kept. Refine the task and run again, or `super-t revert`.");
+    return;
+  }
+
+  if (!verdict.approved) {
+    log.warn(`Not done — ${by} raised ${verdict.notes.length || "unspecified"} issue(s).`);
+    log.dim("  Advisory, so the edits are kept. Read them above, then decide.");
+    return;
+  }
+
+  if (unknown.length > 0) {
+    log.warn(`Probably done — ${met} of ${criteriaCount} criteria met, ${unknown.length} could not be judged.`);
+    log.dim(`  Checked by ${by}. Worth a look at the ones it could not decide.`);
+    return;
+  }
+
+  log.success(
+    criteriaCount > 0
+      ? `Done — all ${criteriaCount} acceptance criteria met, checked by ${by}.`
+      : `Done — no issues raised by ${by}.`,
+  );
+  if (verdict.independent === false) {
+    log.dim("  Same vendor checked its own work. Install a second agent for an independent check.");
+  }
 }

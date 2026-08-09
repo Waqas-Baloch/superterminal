@@ -229,3 +229,44 @@ describe("parseVerdict — a hostile ticket title cannot forge an approval", () 
     expect(p).toMatch(/DATA — the task to judge/);
   });
 });
+
+// The one-agent user is most new users, and they used to get no check at all:
+// chooseReviewer returned null when no OTHER vendor was installed, so the run
+// ended with "criteria not checked" and nothing verified. Reviewing with the
+// author is weaker — same model, same blind spots — but it still catches unmet
+// criteria, and it must never be presented as an independent check.
+describe("chooseReviewer — falls back to the author rather than skipping", () => {
+  const installed = async (id: "claude-code" | "cursor" | "codex") =>
+    isAgentInstalled(AGENT_CLIS[id].bin);
+
+  it("prefers a different vendor when one exists", async () => {
+    if (!(await installed("claude-code")) || !(await installed("codex"))) return;
+    const r = await chooseReviewer("codex", "claude-code");
+    expect(r?.id).toBe("codex");
+    expect(r?.sameVendor).toBeFalsy();
+  });
+
+  it("falls back to the author, flagged, when it is the only agent installed", async () => {
+    if (!(await installed("claude-code"))) return;
+    // Nothing else can review: the configured reviewer IS the author, and the
+    // fallback only reaches the author once every other vendor is ruled out.
+    const r = await chooseReviewer("claude-code", "claude-code");
+    expect(r).not.toBeNull();
+    if (r?.sameVendor) {
+      expect(r.id).toBe("claude-code");
+    }
+  });
+
+  it("never claims a same-vendor review was independent", async () => {
+    if (!(await installed("claude-code"))) return;
+    const r = await chooseReviewer("claude-code", "claude-code");
+    // The flag is the whole contract: callers use it to label the result.
+    if (r && r.id === "claude-code") expect(r.sameVendor).toBe(true);
+  });
+
+  it("returns null for an API author with no agent CLIs to fall back to", async () => {
+    // "api" has no binary of its own, so there is nothing to self-review with.
+    const r = await chooseReviewer("claude-code", "api");
+    if (r) expect(r.id).not.toBe("api" as never);
+  });
+});

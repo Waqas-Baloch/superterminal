@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import nodePath from "node:path";
 import pc from "picocolors";
 import { AGENT_CLIS, runAgent, isAgentInstalled, type AgentCliDef } from "../claude/agentCli";
+import { isSignedOut } from "../commands/provider";
 import { agentFrom } from "./flow";
 import { indexRepo } from "./indexer";
 import { insideRoot } from "./mentions";
@@ -55,13 +56,32 @@ export function reviewerSource(config: ProjectConfig, rulesText: string, globalD
 export async function chooseReviewer(
   configured: AgentCliId,
   authorId: AgentCliId | "api",
-): Promise<{ id: AgentCliId; substituted: boolean } | null> {
-  if (configured !== authorId && (await isAgentInstalled(AGENT_CLIS[configured].bin))) {
+): Promise<{ id: AgentCliId; substituted: boolean; sameVendor?: boolean } | null> {
+  // Installed is not the same as usable. Picking a signed-out agent produced the
+  // worst outcome available: the review failed on an auth error, the fallback
+  // never ran because a reviewer had "been found", and the run ended with no
+  // check at all — while a perfectly good agent sat unused.
+  const usable = async (id: AgentCliId): Promise<boolean> =>
+    (await isAgentInstalled(AGENT_CLIS[id].bin)) && !(await isSignedOut(AGENT_CLIS[id]));
+
+  if (configured !== authorId && (await usable(configured))) {
     return { id: configured, substituted: false };
   }
   for (const candidate of Object.values(AGENT_CLIS)) {
     if (candidate.id === authorId) continue;
-    if (await isAgentInstalled(candidate.bin)) return { id: candidate.id, substituted: true };
+    if (await usable(candidate.id)) return { id: candidate.id, substituted: true };
+  }
+
+  // Nobody else is installed. Reviewing with the author is weaker — a model
+  // checking its own work shares the blind spot that produced it — but it still
+  // catches unmet criteria and forgotten requirements, and it runs read-only
+  // against the same rules. Skipping entirely was the worse option: it left the
+  // one-agent user, which is most new users, with no check at all and a report
+  // saying criteria were "not checked".
+  //
+  // Flagged so every caller can say plainly which kind of review this was.
+  if (authorId !== "api" && (await usable(authorId))) {
+    return { id: authorId, substituted: false, sameVendor: true };
   }
   return null;
 }
@@ -71,6 +91,8 @@ export interface ReviewVerdict {
   notes: string[];
   reviewer: string;
   criteria: CriterionVerdict[]; // per-criterion, when criteria were supplied
+  /** False when the author reviewed itself — a weaker check, and callers must be able to say so. */
+  independent?: boolean;
 }
 
 /**
@@ -253,6 +275,13 @@ export async function secondOpinion(opts: {
   if (chosen.substituted) {
     log.dim(`  ${AGENT_CLIS[configured].title} can't review its own work — ${reviewer.title} is reviewing instead.`);
   }
+  if (chosen.sameVendor) {
+    // Never let this pass as a cross-vendor check. The independence is the
+    // point, and a same-vendor pass is worth less — say so rather than let the
+    // green tick imply otherwise.
+    log.warn(`  No second vendor installed — ${reviewer.title} is checking its own work.`);
+    log.dim(`  Weaker than a cross-vendor review: same model, same blind spots. Install another agent for a real second opinion.`);
+  }
 
   log.info("");
   log.info(pc.dim(`── Second opinion · ${reviewer.title} reviewing ${"─".repeat(Math.max(0, 24 - reviewer.title.length))}`));
@@ -274,6 +303,7 @@ export async function secondOpinion(opts: {
       "review",
     );
     const verdict = parseVerdict(r.text, reviewer.title, criteria.length);
+    verdict.independent = !chosen.sameVendor;
     if (criteria.length > 0) {
       const met = verdict.criteria.filter((c) => c.status === "met").length;
       log.info(pc.bold(`  Acceptance criteria — ${met} of ${criteria.length} met`));
